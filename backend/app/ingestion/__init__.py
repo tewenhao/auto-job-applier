@@ -1,2 +1,6 @@
-"""Ingestion: turn raw inputs (resume, LinkedIn, GitHub, essays, master doc)
-into experience-bank rows. Implemented in Phase 2."""
+"""Ingestion: turn raw inputs (resume, master doc, essays, GitHub) into the
+master profile, retaining every raw input in ``source_documents``."""
+
+from app.ingestion.pipeline import Ingestor
+
+__all__ = ["Ingestor"]

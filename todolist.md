@@ -28,14 +28,17 @@ modules are high-level phases, expanded when we reach them.
 - [ ] Verify `supabase db push` against a live Supabase project (needs creds).
 
 ## Phase 2 — Ingestion
-- [ ] Resume parser (PDF/DOCX → text → Haiku → experiences/skills). **Anchor
-      input — build first against a real resume.**
-- [ ] Master-doc parser (freeform Markdown/text, no length limit).
-- [ ] Essays / cover-letter parser → `writing_samples` (+ any experiences).
-- [ ] GitHub API client → `github_profile` (metadata only).
-- [ ] LinkedIn export parser (ZIP/CSV → Haiku normalize).
-- [ ] Retain every raw input in `source_documents`.
-- [ ] `ingest` CLI command wiring all parsers.
+- [x] Document text extraction (PDF/DOCX/TXT/MD).
+- [x] LLM structured extraction (`messages.parse` + Pydantic schema, Haiku).
+- [x] Resume parser (→ experiences/skills, contact backfill).
+- [x] Master-doc parser (freeform; detail-preserving guidance).
+- [x] Essays / cover-letter parser → `writing_samples`.
+- [x] GitHub API client → `github_profile` (metadata only; pure transform tested).
+- [x] Retain every raw input in `source_documents`.
+- [x] `ingest` CLI command wiring all parsers.
+- [x] Tests for deterministic pieces (extraction schema, mapping, github, docs).
+- [ ] LinkedIn export parser (ZIP/CSV → Haiku normalize) — deferred to Phase 2b.
+- [ ] Live check: run `ingest --resume` against a real resume (needs API key).
 
 ## Phase 3 — Interview engine
 - [ ] Gap detection over the ingested profile (thin bullets, missing

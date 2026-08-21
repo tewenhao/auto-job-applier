@@ -49,9 +49,71 @@ def check() -> None:
 
 
 @app.command()
-def ingest() -> None:
-    """Parse resume / LinkedIn / GitHub / essays / master-doc into the profile."""
-    typer.echo("ingest: not implemented yet (Phase 2).")
+def ingest(
+    resume: str | None = typer.Option(None, help="Path to a resume (PDF/DOCX/TXT/MD)."),
+    master_doc: str | None = typer.Option(
+        None, "--master-doc", help="Path to your free-form master document."
+    ),
+    essay: list[str] = typer.Option(  # noqa: B008 - typer option factory
+        [], "--essay", help="Path to an essay/personal statement (repeatable)."
+    ),
+    cover_letter: list[str] = typer.Option(  # noqa: B008 - typer option factory
+        [], "--cover-letter", help="Path to a past cover letter (repeatable)."
+    ),
+    github: bool = typer.Option(
+        False, "--github", help="Pull GitHub metadata (uses GITHUB_USERNAME/TOKEN)."
+    ),
+) -> None:
+    """Parse resume / master-doc / essays / GitHub into the profile.
+
+    Each raw input is retained verbatim in ``source_documents``. Resume and
+    master-doc are structurally extracted into experiences + skills; essays and
+    cover letters are kept as writing samples for voice.
+    """
+    from app.config import get_settings
+    from app.ingestion import Ingestor
+    from app.llm import LLMClient
+    from app.profile.models import SourceType
+    from app.profile.repository import ProfileRepository
+
+    if not any([resume, master_doc, essay, cover_letter, github]):
+        typer.secho(
+            "Nothing to ingest — pass at least one input. See --help.",
+            fg=typer.colors.YELLOW,
+        )
+        raise typer.Exit(code=1)
+
+    settings = get_settings()
+    repo = ProfileRepository()
+    ingestor = Ingestor(repo, LLMClient(settings))
+    candidate = repo.get_or_create_default_candidate()
+    assert candidate.id is not None  # a persisted candidate always has an id
+    candidate_id = candidate.id
+
+    def run_doc(path: str, source_type: SourceType) -> None:
+        typer.echo(f"Ingesting {source_type.value}: {path} ...")
+        summary = ingestor.ingest_document(path, source_type, candidate_id=candidate_id)
+        typer.secho(f"  -> {summary}", fg=typer.colors.GREEN)
+
+    if resume:
+        run_doc(resume, SourceType.RESUME)
+    if master_doc:
+        run_doc(master_doc, SourceType.MASTER_DOC)
+    for path in essay:
+        run_doc(path, SourceType.ESSAY)
+    for path in cover_letter:
+        run_doc(path, SourceType.COVER_LETTER)
+    if github:
+        if not settings.github_username:
+            typer.secho("GITHUB_USERNAME is not set in .env.", fg=typer.colors.RED)
+            raise typer.Exit(code=1)
+        typer.echo(f"Ingesting GitHub: @{settings.github_username} ...")
+        summary = ingestor.ingest_github(
+            settings.github_username, settings.github_token or None, candidate_id=candidate_id
+        )
+        typer.secho(f"  -> {summary}", fg=typer.colors.GREEN)
+
+    typer.secho("Ingestion complete.", fg=typer.colors.GREEN, bold=True)
 
 
 @app.command()
