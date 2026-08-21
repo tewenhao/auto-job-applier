@@ -4,14 +4,15 @@ Ordered roughly by dependency. Module 1 is broken into concrete steps; later
 modules are high-level phases, expanded when we reach them.
 
 ## Phase 0 — Project scaffolding
-- [ ] Monorepo layout: `backend/`, `supabase/`, `frontend/` (reserved).
-- [ ] Python project: `pyproject.toml` (`uv`), Typer, Pydantic, Anthropic SDK,
+- [x] Monorepo layout: `backend/`, `supabase/`, `frontend/` (reserved).
+- [x] Python project: `pyproject.toml` (`uv`), Typer, Pydantic, Anthropic SDK,
       Supabase client, `pypdf`/`python-docx`, `httpx`.
-- [ ] `backend/app/config.py` — env-driven settings (API keys, model IDs,
+- [x] `backend/app/config.py` — env-driven settings (API keys, model IDs,
       Supabase URL/keys, GitHub PAT).
-- [ ] `.env.example` + README setup steps (clone → env → schema → run).
-- [ ] `backend/app/llm/` — Anthropic client wrapper + per-task model config
+- [x] `.env.example` + README setup steps (clone → env → schema → run).
+- [x] `backend/app/llm/` — Anthropic client wrapper + per-task model config
       (Opus interview / Haiku parse, overridable).
+- [x] `ajp check` command + config/llm tests; ruff + mypy clean.
 
 ## Phase 1 — Database & models
 - [ ] `supabase/migrations/` — SQL for `candidate`, `source_documents`,
