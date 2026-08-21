@@ -15,15 +15,17 @@ modules are high-level phases, expanded when we reach them.
 - [x] `ajp check` command + config/llm tests; ruff + mypy clean.
 
 ## Phase 1 — Database & models
-- [ ] `supabase/migrations/` — SQL for `candidate`, `source_documents`,
+- [x] `supabase/migrations/` — SQL for `candidate`, `source_documents`,
       `experiences`, `skills`, `github_profile`, `writing_samples`,
       `voice_profile`, `preferences`, `interview_sessions`, `interview_turns`.
-- [ ] `backend/app/profile/models.py` — Pydantic models mirroring the schema
-      (the shared contract).
-- [ ] `backend/app/db/` — Supabase client.
-- [ ] `backend/app/profile/` — data-access layer (upsert/get/export) +
-      merge/dedup logic.
-- [ ] Verify: `supabase db push` on a fresh project stands up the schema.
+- [x] `backend/app/profile/models.py` — Pydantic models mirroring the schema
+      (the shared contract) + `MasterProfile` aggregate + Markdown export.
+- [x] `backend/app/db/` — Supabase client.
+- [x] `backend/app/profile/` — data-access layer (upsert/get + natural-key
+      dedup for experiences). LLM-based merge deferred to Phase 2 ingestion.
+- [x] Verified locally: migration applies on real Postgres 16; models match all
+      10 tables 1:1; `to_row` → Postgres → `from_row` round-trips.
+- [ ] Verify `supabase db push` against a live Supabase project (needs creds).
 
 ## Phase 2 — Ingestion
 - [ ] Resume parser (PDF/DOCX → text → Haiku → experiences/skills). **Anchor
