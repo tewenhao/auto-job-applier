@@ -95,6 +95,7 @@ class Candidate(ProfileBase):
     linkedin_url: str | None = None
     portfolio_url: str | None = None
     links: dict[str, Any] = Field(default_factory=dict)
+    handling_notes: list[str] = Field(default_factory=list)  # global "do not surface" guidance
     created_at: datetime | None = None
     updated_at: datetime | None = None
 
@@ -128,6 +129,7 @@ class Experience(ProfileBase):
     source: str | None = None  # which input, or "interview"
     source_document_id: UUID | None = None
     confidence: float | None = None
+    handling_notes: list[str] = Field(default_factory=list)  # constraints, never surfaced
     created_at: datetime | None = None
     updated_at: datetime | None = None
 

@@ -25,6 +25,7 @@ class Task(StrEnum):
 
     INTERVIEW = "interview"  # conversational onboarding — follow-up quality matters
     PARSE = "parse"  # bulk structured extraction (resume/LinkedIn -> JSON), cheap & frequent
+    CONSOLIDATE = "consolidate"  # semantic dedup/merge of the experience bank — judgment-heavy
 
 
 class Settings(BaseSettings):
@@ -49,6 +50,10 @@ class Settings(BaseSettings):
         "claude-haiku-4-5",
         description="Model for bulk structured extraction (cheap & frequent).",
     )
+    model_consolidate: str = Field(
+        "claude-opus-5",
+        description="Model for semantic dedup/merge of the experience bank.",
+    )
 
     # --- Supabase (source of truth) ---
     supabase_url: str = Field("", description="Supabase project URL.")
@@ -66,6 +71,7 @@ class Settings(BaseSettings):
         return {
             Task.INTERVIEW: self.model_interview,
             Task.PARSE: self.model_parse,
+            Task.CONSOLIDATE: self.model_consolidate,
         }[task]
 
 

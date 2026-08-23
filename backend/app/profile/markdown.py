@@ -18,7 +18,7 @@ def _fmt_dates(exp: Experience) -> str:
     return f"{start} – {end}"
 
 
-def _experience_block(exp: Experience) -> list[str]:
+def _experience_block(exp: Experience, *, include_handling_notes: bool) -> list[str]:
     header = " · ".join(p for p in (exp.title, exp.org) if p)
     lines = [f"### {header or '(untitled)'}", f"*{exp.kind}* — {_fmt_dates(exp)}"]
     if exp.summary:
@@ -30,11 +30,19 @@ def _experience_block(exp: Experience) -> list[str]:
     tags = list(exp.skills) + list(exp.tech)
     if tags:
         lines += ["", f"`{'` `'.join(tags)}`"]
+    if include_handling_notes and exp.handling_notes:
+        lines += ["", "> **handling notes (internal, never surfaced):**"]
+        lines += [f"> - {n}" for n in exp.handling_notes]
     return lines
 
 
-def profile_to_markdown(profile: MasterProfile) -> str:
-    """Render the whole profile to a Markdown document."""
+def profile_to_markdown(profile: MasterProfile, *, include_handling_notes: bool = False) -> str:
+    """Render the whole profile to a Markdown document.
+
+    ``handling_notes`` are internal constraints and are excluded by default (this
+    render approximates what downstream generation sees). Pass
+    ``include_handling_notes=True`` for the user's own review.
+    """
     c = profile.candidate
     out: list[str] = [f"# {c.full_name or 'Candidate profile'}"]
 
@@ -48,7 +56,7 @@ def profile_to_markdown(profile: MasterProfile) -> str:
     if profile.experiences:
         out += ["", "## Experience"]
         for exp in profile.experiences:
-            out += [""] + _experience_block(exp)
+            out += [""] + _experience_block(exp, include_handling_notes=include_handling_notes)
 
     if profile.skills:
         out += ["", "## Skills"]
@@ -86,6 +94,10 @@ def profile_to_markdown(profile: MasterProfile) -> str:
             out.append(f"- **Tone**: {profile.voice.tone}")
         if profile.voice.summary:
             out.append(profile.voice.summary)
+
+    if include_handling_notes and c.handling_notes:
+        out += ["", "## Handling notes (global, internal — never surfaced)"]
+        out += [f"- {n}" for n in c.handling_notes]
 
     return "\n".join(out) + "\n"
 

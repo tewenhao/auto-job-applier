@@ -35,10 +35,11 @@ class ExtractedExperience(BaseModel):
     end: str | None = None
     is_current: bool = False
     summary: str | None = None  # concise, resume-style
-    detail: str | None = None  # richer elaboration when the source provides it
+    detail: str | None = None  # richer elaboration (FACTS + VOICE), no private guidance
     skills: list[str] = Field(default_factory=list)
     tech: list[str] = Field(default_factory=list)
     highlights: list[str] = Field(default_factory=list)
+    handling_notes: list[str] = Field(default_factory=list)  # PRIVATE / do-not-surface guidance
 
 
 class ExtractedSkill(BaseModel):

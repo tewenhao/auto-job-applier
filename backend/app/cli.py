@@ -125,6 +125,39 @@ def ingest(
 
 
 @app.command()
+def consolidate(
+    experiences: bool = typer.Option(True, help="Cluster + merge duplicate experiences."),
+    skills: bool = typer.Option(True, help="De-duplicate and re-categorize skills."),
+) -> None:
+    """Semantically merge duplicate experiences and clean up skills.
+
+    Operates on data already in the profile (does not re-read source documents).
+    """
+    from app.ingestion.consolidate import consolidate_experiences, consolidate_skills
+    from app.llm import LLMClient
+    from app.profile.repository import ProfileRepository
+
+    repo = ProfileRepository()
+    llm = LLMClient()
+    candidate = repo.get_or_create_default_candidate()
+    assert candidate.id is not None
+    candidate_id = candidate.id
+
+    if experiences:
+        typer.echo("Consolidating experiences (this calls the model a few times) ...")
+        result = consolidate_experiences(repo, llm, candidate_id)
+        typer.secho(
+            f"  experiences: {result['before']} -> {result['after']}", fg=typer.colors.GREEN
+        )
+    if skills:
+        typer.echo("Consolidating skills ...")
+        result = consolidate_skills(repo, llm, candidate_id)
+        typer.secho(f"  skills: {result['before']} -> {result['after']}", fg=typer.colors.GREEN)
+
+    typer.secho("Consolidation complete.", fg=typer.colors.GREEN, bold=True)
+
+
+@app.command()
 def interview() -> None:
     """Run the gap-aware onboarding interview."""
     typer.echo("interview: not implemented yet (Phase 3).")
@@ -137,9 +170,20 @@ def voice_build() -> None:
 
 
 @profile_app.command("show")
-def profile_show() -> None:
+def profile_show(
+    notes: bool = typer.Option(
+        False, "--notes", help="Include internal handling notes (never surfaced downstream)."
+    ),
+) -> None:
     """Render the whole profile as readable Markdown."""
-    typer.echo("profile show: not implemented yet (Phase 5).")
+    from app.profile.markdown import profile_to_markdown
+    from app.profile.repository import ProfileRepository
+
+    repo = ProfileRepository()
+    candidate = repo.get_or_create_default_candidate()
+    assert candidate.id is not None
+    profile = repo.get_master_profile(candidate.id)
+    typer.echo(profile_to_markdown(profile, include_handling_notes=notes))
 
 
 if __name__ == "__main__":

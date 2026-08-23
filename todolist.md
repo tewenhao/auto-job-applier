@@ -37,8 +37,14 @@ modules are high-level phases, expanded when we reach them.
 - [x] Retain every raw input in `source_documents`.
 - [x] `ingest` CLI command wiring all parsers.
 - [x] Tests for deterministic pieces (extraction schema, mapping, github, docs).
+- [x] Live run against real resume + master doc (41 exp / 42 skills extracted).
+- [x] Refinement: semantic consolidation (`ajp consolidate`) — LLM cluster+merge
+      of duplicate experiences; skills de-dup/re-categorize.
+- [x] Refinement: `handling_notes` field (schema + extraction) so "do not surface"
+      guidance is separated from `detail` and never output.
+- [x] `ajp profile show [--notes]` wired up (Markdown render).
 - [ ] LinkedIn export parser (ZIP/CSV → Haiku normalize) — deferred to Phase 2b.
-- [ ] Live check: run `ingest --resume` against a real resume (needs API key).
+- [ ] Live check: run `ajp consolidate` on real data; review, tune prompts.
 
 ## Phase 3 — Interview engine
 - [ ] Gap detection over the ingested profile (thin bullets, missing

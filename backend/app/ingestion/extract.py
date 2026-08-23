@@ -27,7 +27,14 @@ _SYSTEM = (
     "never invent organizations, titles, dates, or achievements that aren't stated "
     "or clearly implied. Leave a field null when the source doesn't provide it. "
     "Classify each experience's kind accurately. Normalize dates to ISO where "
-    "possible ('2025', '2025-06', or '2025-06-01'); use null if absent."
+    "possible ('2025', '2025-06', or '2025-06-01'); use null if absent.\n\n"
+    "Separate content from guidance. Put factual descriptions and authentic voice "
+    "into 'detail'. Any instruction about how to USE or NOT use the material — "
+    "phrases like 'PRIVATE', 'do not surface', 'don't claim', 'don't inflate', "
+    "'frame carefully', audience-specific framing, or things to avoid saying — must "
+    "go into 'handling_notes' as separate items, NOT into detail/summary. "
+    "handling_notes are constraints for later writing; they must never leak into a "
+    "resume or cover letter."
 )
 
 

@@ -131,6 +131,13 @@ class ProfileRepository:
         )
         return [Experience.from_row(r) for r in rows]
 
+    def clear_experiences(self, candidate_id: UUID) -> None:
+        """Delete all experiences for a candidate (used before writing a
+        consolidated set)."""
+        self.client.table("experiences").delete().eq(
+            "candidate_id", str(candidate_id)
+        ).execute()
+
     # --- skills (real unique constraint -> PostgREST upsert) ---
     def upsert_skill(self, skill: Skill) -> Skill:
         row = _rows(
@@ -149,6 +156,10 @@ class ProfileRepository:
             .execute()
         )
         return [Skill.from_row(r) for r in rows]
+
+    def clear_skills(self, candidate_id: UUID) -> None:
+        """Delete all skills for a candidate (used before writing a normalized set)."""
+        self.client.table("skills").delete().eq("candidate_id", str(candidate_id)).execute()
 
     # --- one-per-candidate singletons ---
     def set_github_profile(self, gh: GithubProfile) -> GithubProfile:

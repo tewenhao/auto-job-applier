@@ -49,6 +49,7 @@ def to_experience(
         skills=x.skills,
         tech=x.tech,
         highlights=x.highlights,
+        handling_notes=x.handling_notes,
         source=source,
         source_document_id=source_document_id,
     )
