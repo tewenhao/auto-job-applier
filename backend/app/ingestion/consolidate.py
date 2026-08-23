@@ -205,9 +205,15 @@ def consolidate_experiences(
         merged = merge_cluster(llm, members) if len(members) > 1 else _single(members[0], llm)
         canonical.append(build_canonical(cluster, members, merged, candidate_id=candidate_id))
 
-    repo.clear_experiences(candidate_id)
+    if not canonical:
+        # Never delete the old set if we produced nothing to replace it with.
+        return {"before": len(experiences), "after": len(experiences)}
+
+    # Safe replacement: write the merged rows first, then retire the originals.
+    # A failure mid-insert leaves the original experiences intact.
     for exp in canonical:
-        repo.upsert_experience(exp)
+        repo.add_experience(exp)
+    repo.delete_experiences_by_ids([e.id for e in experiences if e.id is not None])
 
     return {"before": len(experiences), "after": len(canonical)}
 

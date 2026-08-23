@@ -65,6 +65,12 @@ def ingest(
     github: bool = typer.Option(
         False, "--github", help="Pull GitHub metadata (uses GITHUB_USERNAME/TOKEN)."
     ),
+    fresh: bool = typer.Option(
+        False,
+        "--fresh",
+        help="Clear this candidate's source docs, experiences, skills, and writing "
+        "samples first, for a clean rebuild. (GitHub + contact are left in place.)",
+    ),
 ) -> None:
     """Parse resume / master-doc / essays / GitHub into the profile.
 
@@ -79,9 +85,9 @@ def ingest(
     from app.profile.models import SourceType
     from app.profile.repository import ProfileRepository
 
-    if not any([resume, master_doc, essay, cover_letter, github]):
+    if not any([resume, master_doc, essay, cover_letter, github, fresh]):
         typer.secho(
-            "Nothing to ingest — pass at least one input. See --help.",
+            "Nothing to ingest — pass at least one input (or --fresh). See --help.",
             fg=typer.colors.YELLOW,
         )
         raise typer.Exit(code=1)
@@ -92,6 +98,16 @@ def ingest(
     candidate = repo.get_or_create_default_candidate()
     assert candidate.id is not None  # a persisted candidate always has an id
     candidate_id = candidate.id
+
+    if fresh:
+        typer.secho(
+            "--fresh: clearing source docs, experiences, skills, writing samples ...",
+            fg=typer.colors.YELLOW,
+        )
+        repo.clear_experiences(candidate_id)
+        repo.clear_skills(candidate_id)
+        repo.clear_writing_samples(candidate_id)
+        repo.clear_source_documents(candidate_id)
 
     def run_doc(path: str, source_type: SourceType) -> None:
         files = iter_documents(path)

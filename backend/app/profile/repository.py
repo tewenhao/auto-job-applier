@@ -91,6 +91,12 @@ class ProfileRepository:
         )
         return [SourceDocument.from_row(r) for r in rows]
 
+    def clear_source_documents(self, candidate_id: UUID) -> None:
+        """Delete all retained source documents for a candidate."""
+        self.client.table("source_documents").delete().eq(
+            "candidate_id", str(candidate_id)
+        ).execute()
+
     # --- experiences (dedup on the natural key, since the unique index is
     #     an expression index PostgREST can't target with on_conflict) ---
     def upsert_experience(self, exp: Experience) -> Experience:
@@ -131,11 +137,25 @@ class ProfileRepository:
         )
         return [Experience.from_row(r) for r in rows]
 
+    def add_experience(self, exp: Experience) -> Experience:
+        """Plain insert (no natural-key dedup). Used when writing a consolidated
+        set that is already de-duplicated."""
+        row = _rows(self.client.table("experiences").insert(exp.to_row()).execute())[0]
+        return Experience.from_row(row)
+
     def clear_experiences(self, candidate_id: UUID) -> None:
-        """Delete all experiences for a candidate (used before writing a
-        consolidated set)."""
+        """Delete all experiences for a candidate."""
         self.client.table("experiences").delete().eq(
             "candidate_id", str(candidate_id)
+        ).execute()
+
+    def delete_experiences_by_ids(self, ids: list[UUID]) -> None:
+        """Delete specific experiences by id (used to retire the pre-merge rows
+        only after the merged rows are safely written)."""
+        if not ids:
+            return
+        self.client.table("experiences").delete().in_(
+            "id", [str(i) for i in ids]
         ).execute()
 
     # --- skills (real unique constraint -> PostgREST upsert) ---
@@ -233,6 +253,12 @@ class ProfileRepository:
             .execute()
         )
         return [WritingSample.from_row(r) for r in rows]
+
+    def clear_writing_samples(self, candidate_id: UUID) -> None:
+        """Delete all writing samples for a candidate."""
+        self.client.table("writing_samples").delete().eq(
+            "candidate_id", str(candidate_id)
+        ).execute()
 
     # --- interview transcript ---
     def create_interview_session(self, candidate_id: UUID) -> InterviewSession:
