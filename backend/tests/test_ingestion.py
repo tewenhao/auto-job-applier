@@ -8,7 +8,7 @@ from uuid import uuid4
 
 import pytest
 
-from app.ingestion.documents import extract_text
+from app.ingestion.documents import extract_text, iter_documents
 from app.ingestion.github import build_github_profile
 from app.ingestion.mapping import apply_contact, normalize_date, to_experience, to_skill
 from app.ingestion.schema import ExtractedContact, ExtractedExperience, ExtractedSkill
@@ -50,6 +50,31 @@ def test_extract_text_unsupported(tmp_path: Path) -> None:
 def test_extract_text_missing() -> None:
     with pytest.raises(FileNotFoundError):
         extract_text("/nonexistent/file.txt")
+
+
+def test_iter_documents_single_file(tmp_path: Path) -> None:
+    f = tmp_path / "one.txt"
+    f.write_text("x", encoding="utf-8")
+    assert iter_documents(f) == [f]
+
+
+def test_iter_documents_directory_filters_and_sorts(tmp_path: Path) -> None:
+    (tmp_path / "b.pdf").write_text("x", encoding="utf-8")
+    (tmp_path / "a.docx").write_text("x", encoding="utf-8")
+    (tmp_path / "c.txt").write_text("x", encoding="utf-8")
+    (tmp_path / "notes.rtf").write_text("x", encoding="utf-8")  # unsupported
+    (tmp_path / ".hidden.pdf").write_text("x", encoding="utf-8")  # hidden
+    nested = tmp_path / "old"
+    nested.mkdir()
+    (nested / "d.md").write_text("x", encoding="utf-8")  # recursive
+
+    names = [p.name for p in iter_documents(tmp_path)]
+    assert names == ["a.docx", "b.pdf", "c.txt", "d.md"]
+
+
+def test_iter_documents_nonexistent_returns_path() -> None:
+    # A bare (missing) path is returned as-is; extract_text raises on use.
+    assert iter_documents("/nope/x.pdf") == [Path("/nope/x.pdf")]
 
 
 # --- mapping ---

@@ -50,15 +50,17 @@ def check() -> None:
 
 @app.command()
 def ingest(
-    resume: str | None = typer.Option(None, help="Path to a resume (PDF/DOCX/TXT/MD)."),
+    resume: str | None = typer.Option(
+        None, help="Resume file, or a directory of resume versions (PDF/DOCX/TXT/MD)."
+    ),
     master_doc: str | None = typer.Option(
-        None, "--master-doc", help="Path to your free-form master document."
+        None, "--master-doc", help="Master document file, or a directory of them."
     ),
     essay: list[str] = typer.Option(  # noqa: B008 - typer option factory
-        [], "--essay", help="Path to an essay/personal statement (repeatable)."
+        [], "--essay", help="Essay file or directory (repeatable)."
     ),
     cover_letter: list[str] = typer.Option(  # noqa: B008 - typer option factory
-        [], "--cover-letter", help="Path to a past cover letter (repeatable)."
+        [], "--cover-letter", help="Cover-letter file or directory (repeatable)."
     ),
     github: bool = typer.Option(
         False, "--github", help="Pull GitHub metadata (uses GITHUB_USERNAME/TOKEN)."
@@ -72,6 +74,7 @@ def ingest(
     """
     from app.config import get_settings
     from app.ingestion import Ingestor
+    from app.ingestion.documents import iter_documents
     from app.llm import LLMClient
     from app.profile.models import SourceType
     from app.profile.repository import ProfileRepository
@@ -91,9 +94,14 @@ def ingest(
     candidate_id = candidate.id
 
     def run_doc(path: str, source_type: SourceType) -> None:
-        typer.echo(f"Ingesting {source_type.value}: {path} ...")
-        summary = ingestor.ingest_document(path, source_type, candidate_id=candidate_id)
-        typer.secho(f"  -> {summary}", fg=typer.colors.GREEN)
+        files = iter_documents(path)
+        if not files:
+            typer.secho(f"  no supported documents found in {path}", fg=typer.colors.YELLOW)
+            return
+        for f in files:
+            typer.echo(f"Ingesting {source_type.value}: {f} ...")
+            summary = ingestor.ingest_document(f, source_type, candidate_id=candidate_id)
+            typer.secho(f"  -> {summary}", fg=typer.colors.GREEN)
 
     if resume:
         run_doc(resume, SourceType.RESUME)

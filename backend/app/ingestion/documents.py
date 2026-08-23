@@ -5,6 +5,27 @@ from __future__ import annotations
 from pathlib import Path
 
 TEXT_SUFFIXES = {".txt", ".md", ".markdown", ".text"}
+SUPPORTED_SUFFIXES = {".pdf", ".docx"} | TEXT_SUFFIXES
+
+
+def iter_documents(path: str | Path) -> list[Path]:
+    """Resolve an input path to a list of document files.
+
+    A file resolves to itself; a directory resolves to all supported documents
+    beneath it (recursively), sorted, skipping hidden files. This lets a single
+    ``--resume``/``--essay``/``--cover-letter`` argument point at a folder of
+    many versions.
+    """
+    path = Path(path)
+    if path.is_dir():
+        return sorted(
+            p
+            for p in path.rglob("*")
+            if p.is_file()
+            and p.suffix.lower() in SUPPORTED_SUFFIXES
+            and not p.name.startswith(".")
+        )
+    return [path]  # single file (existence/type validated by extract_text)
 
 
 def extract_text(path: str | Path) -> str:
