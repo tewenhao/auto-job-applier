@@ -17,8 +17,19 @@ app = typer.Typer(
 
 voice_app = typer.Typer(help="Voice-profile tools.", no_args_is_help=True)
 profile_app = typer.Typer(help="Inspect and edit the master profile.", no_args_is_help=True)
+prefs_app = typer.Typer(help="Job-search preferences.", no_args_is_help=True)
+listings_app = typer.Typer(help="Ingest, score, and review job listings.", no_args_is_help=True)
 app.add_typer(voice_app, name="voice")
 app.add_typer(profile_app, name="profile")
+app.add_typer(prefs_app, name="preferences")
+app.add_typer(listings_app, name="listings")
+
+
+def _split(value: str | None) -> list[str] | None:
+    """Parse a comma-separated CLI option into a list (None if not provided)."""
+    if value is None:
+        return None
+    return [v.strip() for v in value.split(",") if v.strip()]
 
 
 @app.command()
@@ -200,6 +211,164 @@ def profile_show(
     assert candidate.id is not None
     profile = repo.get_master_profile(candidate.id)
     typer.echo(profile_to_markdown(profile, include_handling_notes=notes))
+
+
+# --- preferences ---
+@prefs_app.command("derive")
+def preferences_derive() -> None:
+    """Draft preferences from the master profile (LLM), then save them."""
+    from app.llm import LLMClient
+    from app.profile.preferences import derive_preferences, draft_to_preferences
+    from app.profile.repository import ProfileRepository
+
+    repo = ProfileRepository()
+    candidate = repo.get_or_create_default_candidate()
+    assert candidate.id is not None
+    profile = repo.get_master_profile(candidate.id)
+
+    typer.echo("Deriving preferences from your profile ...")
+    draft = derive_preferences(LLMClient(), profile)
+    saved = repo.set_preferences(draft_to_preferences(draft, candidate_id=candidate.id))
+    _print_preferences(saved)
+    typer.secho("Saved. Edit with `ajp preferences set` or in Supabase.", fg=typer.colors.GREEN)
+
+
+@prefs_app.command("show")
+def preferences_show() -> None:
+    """Show current preferences."""
+    from app.profile.repository import ProfileRepository
+
+    repo = ProfileRepository()
+    candidate = repo.get_or_create_default_candidate()
+    assert candidate.id is not None
+    prefs = repo.get_preferences(candidate.id)
+    if prefs is None:
+        typer.secho("No preferences set. Run `ajp preferences derive`.", fg=typer.colors.YELLOW)
+        raise typer.Exit(code=1)
+    _print_preferences(prefs)
+
+
+@prefs_app.command("set")
+def preferences_set(
+    role_types: str | None = typer.Option(None, help="Comma-separated; replaces the field."),
+    domains: str | None = typer.Option(None, help="Comma-separated (swe,ml,quant,...)."),
+    industries: str | None = typer.Option(None, help="Comma-separated."),
+    company_sizes: str | None = typer.Option(None, help="Comma-separated (startup,midsize,large)."),
+    markets: str | None = typer.Option(None, help="Comma-separated (uk,sg,us,cn)."),
+    avoid: str | None = typer.Option(None, help="Comma-separated things to avoid."),
+) -> None:
+    """Overwrite specific preference fields (only the ones you pass)."""
+    from app.profile.models import Preferences
+    from app.profile.repository import ProfileRepository
+
+    repo = ProfileRepository()
+    candidate = repo.get_or_create_default_candidate()
+    assert candidate.id is not None
+    prefs = repo.get_preferences(candidate.id) or Preferences(candidate_id=candidate.id)
+
+    for field, value in (
+        ("role_types", _split(role_types)),
+        ("domains", _split(domains)),
+        ("industries", _split(industries)),
+        ("company_sizes", _split(company_sizes)),
+        ("location_markets", _split(markets)),
+        ("avoid", _split(avoid)),
+    ):
+        if value is not None:
+            setattr(prefs, field, value)
+
+    _print_preferences(repo.set_preferences(prefs))
+    typer.secho("Saved.", fg=typer.colors.GREEN)
+
+
+def _print_preferences(prefs) -> None:  # type: ignore[no-untyped-def]
+    typer.echo("Preferences:")
+    for label, values in (
+        ("Role types", prefs.role_types),
+        ("Domains", prefs.domains),
+        ("Industries", prefs.industries),
+        ("Company sizes", prefs.company_sizes),
+        ("Markets", prefs.location_markets),
+        ("Avoid", prefs.avoid),
+    ):
+        typer.echo(f"  {label}: {', '.join(values) if values else '-'}")
+
+
+# --- listings ---
+@listings_app.command("add")
+def listings_add(
+    url: str | None = typer.Option(None, help="Job posting URL."),
+    text: str | None = typer.Option(None, help="Raw JD text (for pages that won't fetch)."),
+) -> None:
+    """Ingest one listing from a URL or pasted JD text; parse and score it."""
+    from app.listings.ingest import ListingIngestor
+    from app.listings.repository import ListingRepository
+    from app.llm import LLMClient
+    from app.profile.repository import ProfileRepository
+
+    if not url and not text:
+        typer.secho("Pass --url or --text.", fg=typer.colors.YELLOW)
+        raise typer.Exit(code=1)
+
+    profile_repo = ProfileRepository()
+    candidate = profile_repo.get_or_create_default_candidate()
+    assert candidate.id is not None
+    ingestor = ListingIngestor(ListingRepository(), profile_repo, LLMClient())
+
+    typer.echo("Fetching, parsing, and scoring ...")
+    listing = ingestor.ingest_manual(candidate_id=candidate.id, url=url, text=text)
+    typer.secho(
+        f"[{listing.score}] {listing.role_title} @ {listing.company} "
+        f"({listing.status}) — {listing.score_rationale}",
+        fg=typer.colors.GREEN,
+    )
+
+
+@listings_app.command("list")
+def listings_list(
+    all_: bool = typer.Option(False, "--all", help="Show all, not just surfaced."),
+) -> None:
+    """List scored listings, highest score first."""
+    from app.listings.models import ListingStatus
+    from app.listings.repository import ListingRepository
+    from app.profile.repository import ProfileRepository
+
+    candidate = ProfileRepository().get_or_create_default_candidate()
+    assert candidate.id is not None
+    repo = ListingRepository()
+    listings = repo.list(
+        candidate.id, status=None if all_ else ListingStatus.SURFACED
+    )
+    if not listings:
+        typer.echo("No listings." if all_ else "No surfaced listings. Try --all.")
+        return
+    for lst in listings:
+        typer.echo(
+            f"[{lst.score if lst.score is not None else '--'}] {lst.status:9} "
+            f"{lst.role_title} @ {lst.company}  ({lst.market}/{lst.domain})  {lst.id}"
+        )
+
+
+@listings_app.command("choose")
+def listings_choose(listing_id: str) -> None:
+    """Mark a listing as chosen (the HITL gate into generation)."""
+    _set_listing_status(listing_id, "chosen")
+
+
+@listings_app.command("dismiss")
+def listings_dismiss(listing_id: str) -> None:
+    """Dismiss a listing."""
+    _set_listing_status(listing_id, "dismissed")
+
+
+def _set_listing_status(listing_id: str, status: str) -> None:
+    from uuid import UUID
+
+    from app.listings.models import ListingStatus
+    from app.listings.repository import ListingRepository
+
+    ListingRepository().set_status(UUID(listing_id), ListingStatus(status))
+    typer.secho(f"Listing {listing_id} -> {status}.", fg=typer.colors.GREEN)
 
 
 if __name__ == "__main__":

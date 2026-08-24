@@ -67,10 +67,19 @@ modules are high-level phases, expanded when we reach them.
 - [ ] Tests: parser fixtures, gap detection, DAL round-trips.
 - [ ] Module 1 acceptance walk-through end to end.
 
+## Module 2 — Listing ingestion (branch: feat/listing-ingestion)
+- [x] `listings` schema + `Listing` model + repository (dedup by URL).
+- [x] Preferences derived from profile (`ajp preferences derive/show/set`).
+- [x] Manual ingest (`ajp listings add --url|--text`): fetch (Greenhouse/Lever
+      JSON fast-paths + generic HTTP) → LLM parse → hard filters + LLM relevance
+      score → store. `ajp listings list/choose/dismiss`.
+- [x] company_group normalization (one-role-per-company grouping; enforcement
+      of "pick one" deferred to dashboard/HITL).
+- [ ] **UK Tracker scraper** — blocked on the tracker's source URL/format.
+- [ ] Greenhouse/Lever/Workday board scrapers (beyond single-URL fast-paths).
+- [ ] Live check: derive preferences, add a real listing, review scoring.
+
 ## Later phases (expanded when reached)
-- [ ] **Module 2** — Listing ingestion: manual paste first, then UK Tracker
-      scraper; `listings` model with `source`; preference scoring;
-      one-role-per-company grouping.
 - [ ] **Module 3** — Application generation: tailored resume + humanified voiced
       cover letter (JD + scraped company values + master profile).
 - [ ] **Module 4** — Dashboard skeleton; migrate interview + review queues to web.

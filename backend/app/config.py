@@ -66,6 +66,11 @@ class Settings(BaseSettings):
     github_token: str = Field("", description="GitHub personal access token.")
     github_username: str = Field("", description="GitHub username to ingest.")
 
+    # --- Listings (Module 2) ---
+    listing_score_threshold: int = Field(
+        60, description="Listings scoring at/above this (0-100) are surfaced."
+    )
+
     def model_for(self, task: Task) -> str:
         """Return the configured model id for a given task."""
         return {
