@@ -404,11 +404,57 @@ def listings_list(
     if not listings:
         typer.echo("No listings." if all_ else "No surfaced listings. Try --all.")
         return
+    typer.secho(f"{'SCORE':>5}  {'STATUS':9}  ROLE @ COMPANY  (market/domain)", bold=True)
     for lst in listings:
+        score = str(lst.score) if lst.score is not None else "--"
         typer.echo(
-            f"[{lst.score if lst.score is not None else '--'}] {lst.status:9} "
-            f"{lst.role_title} @ {lst.company}  ({lst.market}/{lst.domain})  {lst.id}"
+            f"{score:>5}  {lst.status:9}  {lst.role_title} @ {lst.company}  "
+            f"({lst.market}/{lst.domain})"
         )
+        typer.secho(f"        {lst.id}", dim=True)
+    typer.echo("\nUse `ajp listings show <id>` for the JD summary and scoring rationale.")
+
+
+@listings_app.command("show")
+def listings_show(listing_id: str) -> None:
+    """Show one listing in full, including the scoring rationale."""
+    from uuid import UUID
+
+    from app.listings.repository import ListingRepository
+
+    lst = ListingRepository().get(UUID(listing_id))
+    if lst is None:
+        typer.secho("No listing with that id.", fg=typer.colors.RED)
+        raise typer.Exit(code=1)
+
+    typer.secho(f"{lst.role_title}  @  {lst.company}", bold=True)
+    typer.echo(
+        f"  score {lst.score}  |  status {lst.status}  |  {lst.market}/{lst.domain}"
+        f"  |  ats {lst.ats}"
+    )
+    for label, value in (("location", lst.location), ("deadline", lst.deadline), ("url", lst.url)):
+        if value:
+            typer.echo(f"  {label}: {value}")
+
+    if lst.jd_summary:
+        typer.echo(f"\nSummary:\n  {lst.jd_summary}")
+    if lst.requirements:
+        typer.echo("\nRequirements:")
+        for r in lst.requirements:
+            typer.echo(f"  - {r}")
+
+    typer.secho("\nWhy this score:", bold=True)
+    if lst.score_rationale:
+        typer.echo(f"  {lst.score_rationale}")
+    breakdown = lst.score_breakdown or {}
+    if breakdown.get("filtered"):
+        typer.secho(f"  filtered: {breakdown['filtered']}", fg=typer.colors.YELLOW)
+    for label, key in (("matched", "matched"), ("missing", "missing")):
+        items = breakdown.get(key) or []
+        if items:
+            typer.echo(f"  {label}:")
+            for item in items:
+                typer.echo(f"    - {item}")
 
 
 @listings_app.command("choose")
