@@ -324,6 +324,68 @@ def listings_add(
     )
 
 
+@listings_app.command("add-batch")
+def listings_add_batch(
+    urls: list[str] | None = typer.Argument(  # noqa: B008 - typer argument factory
+        None, help="Job URLs (space-separated)."
+    ),
+    file: str | None = typer.Option(
+        None, "--file", help="Path to a file of URLs (one per line; # comments ok)."
+    ),
+) -> None:
+    """Ingest many listings at once from URLs and/or a file (fetch, parse, score each).
+
+    Pairs with the Trackr link-grabber snippet: grab links in your browser, paste
+    them here (or into a file) and this fetches/scores them all. Failures on one
+    URL don't stop the rest.
+    """
+    from pathlib import Path
+
+    from app.listings.ingest import (
+        ListingIngestor,
+        dedupe_preserving_order,
+        parse_url_lines,
+    )
+    from app.listings.repository import ListingRepository
+    from app.llm import LLMClient
+    from app.profile.repository import ProfileRepository
+
+    collected = list(urls or [])
+    if file:
+        collected += parse_url_lines(Path(file).read_text(encoding="utf-8"))
+    targets = dedupe_preserving_order(collected)
+    if not targets:
+        typer.secho("No URLs given. Pass URLs or --file.", fg=typer.colors.YELLOW)
+        raise typer.Exit(code=1)
+
+    profile_repo = ProfileRepository()
+    candidate = profile_repo.get_or_create_default_candidate()
+    assert candidate.id is not None
+    ingestor = ListingIngestor(ListingRepository(), profile_repo, LLMClient())
+
+    ok = 0
+    failed = 0
+    typer.echo(f"Ingesting {len(targets)} URLs ...")
+    for url in targets:
+        try:
+            listing = ingestor.ingest_manual(candidate_id=candidate.id, url=url)
+            ok += 1
+            typer.secho(
+                f"  [{listing.score}] {listing.status:9} "
+                f"{listing.role_title} @ {listing.company}",
+                fg=typer.colors.GREEN,
+            )
+        except Exception as exc:  # noqa: BLE001 - one bad URL shouldn't abort the batch
+            failed += 1
+            typer.secho(f"  [skip] {url}: {exc}", fg=typer.colors.RED)
+
+    typer.secho(
+        f"Done: {ok} ingested, {failed} skipped. See `ajp listings list`.",
+        fg=typer.colors.GREEN,
+        bold=True,
+    )
+
+
 @listings_app.command("list")
 def listings_list(
     all_: bool = typer.Option(False, "--all", help="Show all, not just surfaced."),

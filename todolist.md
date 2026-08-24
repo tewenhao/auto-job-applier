@@ -75,7 +75,10 @@ modules are high-level phases, expanded when we reach them.
       score → store. `ajp listings list/choose/dismiss`.
 - [x] company_group normalization (one-role-per-company grouping; enforcement
       of "pick one" deferred to dashboard/HITL).
-- [ ] **UK Tracker scraper** — blocked on the tracker's source URL/format.
+- [x] Batch ingest (`ajp listings add-batch`) + Trackr link-grabber snippet
+      (`scripts/trackr-link-grabber.js`). UK Tracker (The Trackr) is a paid SPA;
+      scraping its API is ToS/account-risky, so we grab links browser-side and
+      batch-ingest the public application pages instead.
 - [ ] Greenhouse/Lever/Workday board scrapers (beyond single-URL fast-paths).
 - [ ] Live check: derive preferences, add a real listing, review scoring.
 

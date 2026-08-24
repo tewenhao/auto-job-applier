@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+from collections.abc import Iterable
 from uuid import UUID
 
 from app.config import get_settings
@@ -12,6 +13,27 @@ from app.listings.repository import ListingRepository
 from app.listings.score import apply_hard_filters, score_listing
 from app.llm import LLMClient
 from app.profile.repository import ProfileRepository
+
+
+def parse_url_lines(text: str) -> list[str]:
+    """Extract URLs from a block of text: one per line, skipping blanks and
+    ``#`` comments."""
+    out = []
+    for line in text.splitlines():
+        stripped = line.strip()
+        if stripped and not stripped.startswith("#"):
+            out.append(stripped)
+    return out
+
+
+def dedupe_preserving_order(urls: Iterable[str]) -> list[str]:
+    seen: set[str] = set()
+    out: list[str] = []
+    for url in urls:
+        if url not in seen:
+            seen.add(url)
+            out.append(url)
+    return out
 
 
 def build_listing(

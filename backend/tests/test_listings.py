@@ -13,7 +13,7 @@ from app.listings.fetch import (
     parse_greenhouse_url,
     parse_lever_url,
 )
-from app.listings.ingest import build_listing
+from app.listings.ingest import build_listing, dedupe_preserving_order, parse_url_lines
 from app.listings.models import Listing, ListingSource, ListingStatus, normalize_company
 from app.listings.parse import ParsedListing
 from app.listings.score import apply_hard_filters
@@ -129,3 +129,13 @@ def test_hard_filter_avoid_list() -> None:
 
 def test_hard_filter_no_prefs() -> None:
     assert apply_hard_filters(_listing(market="us"), None) is None
+
+
+# --- batch URL helpers ---
+def test_parse_url_lines_skips_blanks_and_comments() -> None:
+    text = "https://a.com/1\n\n  # a comment\nhttps://b.com/2  \n"
+    assert parse_url_lines(text) == ["https://a.com/1", "https://b.com/2"]
+
+
+def test_dedupe_preserving_order() -> None:
+    assert dedupe_preserving_order(["a", "b", "a", "c", "b"]) == ["a", "b", "c"]
