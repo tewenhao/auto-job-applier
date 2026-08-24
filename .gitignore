@@ -1,3 +1,6 @@
+# project specific
+candidate-inputs/
+
 # --- Secrets / local config ---
 .env
 .env.*
