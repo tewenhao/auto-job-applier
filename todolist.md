@@ -82,6 +82,16 @@ modules are high-level phases, expanded when we reach them.
 - [ ] Greenhouse/Lever/Workday board scrapers (beyond single-URL fast-paths).
 - [ ] Live check: derive preferences, add a real listing, review scoring.
 
+## Module 3 — Application generation (branch: feat/application-generation)
+- [x] Voice distillation (`ajp voice build`) — style guide from writing samples.
+- [x] `applications` + `company_briefs` schema (migration 005).
+- [x] Company research (`llm.research` web-search brief, cached per company,
+      graceful fallback) grounded per company.
+- [x] Cover-letter generation (JD + brief + profile + voice + handling_notes,
+      humanified) → `ajp generate <listing_id>`, `ajp application show <id>`.
+- [ ] Résumé tailoring + render into the user's LaTeX template → .tex/PDF.
+- [ ] Live check: `voice build`, then `generate` for a chosen listing; review.
+
 ## Later phases (expanded when reached)
 - [ ] **Module 3** — Application generation: tailored resume + humanified voiced
       cover letter (JD + scraped company values + master profile).

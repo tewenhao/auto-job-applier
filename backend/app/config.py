@@ -26,6 +26,7 @@ class Task(StrEnum):
     INTERVIEW = "interview"  # conversational onboarding — follow-up quality matters
     PARSE = "parse"  # bulk structured extraction (resume/LinkedIn -> JSON), cheap & frequent
     CONSOLIDATE = "consolidate"  # semantic dedup/merge of the experience bank — judgment-heavy
+    GENERATE = "generate"  # application generation (cover letter, resume) — quality-critical
 
 
 class Settings(BaseSettings):
@@ -54,6 +55,10 @@ class Settings(BaseSettings):
         "claude-opus-5",
         description="Model for semantic dedup/merge of the experience bank.",
     )
+    model_generate: str = Field(
+        "claude-opus-5",
+        description="Model for application generation (cover letter, resume).",
+    )
 
     # --- Supabase (source of truth) ---
     supabase_url: str = Field("", description="Supabase project URL.")
@@ -77,6 +82,7 @@ class Settings(BaseSettings):
             Task.INTERVIEW: self.model_interview,
             Task.PARSE: self.model_parse,
             Task.CONSOLIDATE: self.model_consolidate,
+            Task.GENERATE: self.model_generate,
         }[task]
 
 

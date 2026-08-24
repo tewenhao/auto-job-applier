@@ -91,3 +91,40 @@ class LLMClient:
         if parsed is None:
             raise ValueError("Structured extraction returned no parsed output.")
         return parsed
+
+    def research(
+        self,
+        *,
+        task: Task,
+        messages: list[dict[str, Any]],
+        system: str | None = None,
+        max_tokens: int = DEFAULT_MAX_TOKENS,
+        max_searches: int = 5,
+    ) -> str:
+        """Answer with the web-search server tool enabled, returning the text.
+
+        Claude runs searches server-side. Handles ``pause_turn`` by resuming a
+        few times. Used for company research.
+        """
+        tools = [
+            {"type": "web_search_20260209", "name": "web_search", "max_uses": max_searches}
+        ]
+        base: dict[str, Any] = {
+            "model": self.settings.model_for(task),
+            "max_tokens": max_tokens,
+            "tools": tools,
+        }
+        if system is not None:
+            base["system"] = system
+
+        convo: list[Any] = list(messages)
+        response = None
+        for _ in range(4):
+            response = self._client.messages.create(messages=convo, **base)
+            if response.stop_reason != "pause_turn":
+                break
+            convo = convo + [{"role": "assistant", "content": response.content}]
+
+        if response is None:
+            return ""
+        return "".join(block.text for block in response.content if block.type == "text")

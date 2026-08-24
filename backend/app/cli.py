@@ -19,10 +19,12 @@ voice_app = typer.Typer(help="Voice-profile tools.", no_args_is_help=True)
 profile_app = typer.Typer(help="Inspect and edit the master profile.", no_args_is_help=True)
 prefs_app = typer.Typer(help="Job-search preferences.", no_args_is_help=True)
 listings_app = typer.Typer(help="Ingest, score, and review job listings.", no_args_is_help=True)
+application_app = typer.Typer(help="Review generated applications.", no_args_is_help=True)
 app.add_typer(voice_app, name="voice")
 app.add_typer(profile_app, name="profile")
 app.add_typer(prefs_app, name="preferences")
 app.add_typer(listings_app, name="listings")
+app.add_typer(application_app, name="application")
 
 
 def _split(value: str | None) -> list[str] | None:
@@ -501,6 +503,48 @@ def _set_listing_status(listing_id: str, status: str) -> None:
 
     ListingRepository().set_status(UUID(listing_id), ListingStatus(status))
     typer.secho(f"Listing {listing_id} -> {status}.", fg=typer.colors.GREEN)
+
+
+@app.command()
+def generate(
+    listing_id: str,
+    refresh_company: bool = typer.Option(
+        False, "--refresh-company", help="Re-run company research instead of using the cache."
+    ),
+) -> None:
+    """Generate a cover letter for a listing (research the company, then write)."""
+    from uuid import UUID
+
+    from app.generation.pipeline import generate_application
+
+    typer.echo("Researching the company and writing the cover letter ...")
+    application = generate_application(UUID(listing_id), refresh_company=refresh_company)
+    typer.secho(
+        f"Draft saved (application {application.id}). "
+        f"View it with `ajp application show {application.id}`.",
+        fg=typer.colors.GREEN,
+        bold=True,
+    )
+
+
+@application_app.command("show")
+def application_show(application_id: str) -> None:
+    """Show a generated application (cover letter, status)."""
+    from uuid import UUID
+
+    from app.generation.repository import GenerationRepository
+
+    application = GenerationRepository().get_application(UUID(application_id))
+    if application is None:
+        typer.secho("No application with that id.", fg=typer.colors.RED)
+        raise typer.Exit(code=1)
+
+    typer.secho(f"Application {application.id}  |  status {application.status}", bold=True)
+    if application.cover_letter:
+        typer.secho("\n--- Cover letter ---\n", bold=True)
+        typer.echo(application.cover_letter)
+    else:
+        typer.echo("(no cover letter yet)")
 
 
 if __name__ == "__main__":
