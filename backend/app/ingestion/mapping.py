@@ -8,7 +8,8 @@ from uuid import UUID
 from app.ingestion.schema import ExtractedContact, ExtractedExperience, ExtractedSkill
 from app.profile.models import Candidate, Experience, Skill
 
-_DATE_FORMATS = ("%Y-%m-%d", "%Y-%m", "%Y")
+# ISO forms plus LinkedIn's month-name forms ("Jun 2023", "June 2023").
+_DATE_FORMATS = ("%Y-%m-%d", "%Y-%m", "%Y", "%b %Y", "%B %Y")
 
 
 def normalize_date(value: str | None) -> date | None:

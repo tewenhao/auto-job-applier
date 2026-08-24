@@ -62,6 +62,9 @@ def ingest(
     cover_letter: list[str] = typer.Option(  # noqa: B008 - typer option factory
         [], "--cover-letter", help="Cover-letter file or directory (repeatable)."
     ),
+    linkedin: str | None = typer.Option(
+        None, "--linkedin", help="LinkedIn data export (.zip or a directory of CSVs)."
+    ),
     github: bool = typer.Option(
         False, "--github", help="Pull GitHub metadata (uses GITHUB_USERNAME/TOKEN)."
     ),
@@ -85,7 +88,7 @@ def ingest(
     from app.profile.models import SourceType
     from app.profile.repository import ProfileRepository
 
-    if not any([resume, master_doc, essay, cover_letter, github, fresh]):
+    if not any([resume, master_doc, essay, cover_letter, linkedin, github, fresh]):
         typer.secho(
             "Nothing to ingest — pass at least one input (or --fresh). See --help.",
             fg=typer.colors.YELLOW,
@@ -127,6 +130,10 @@ def ingest(
         run_doc(path, SourceType.ESSAY)
     for path in cover_letter:
         run_doc(path, SourceType.COVER_LETTER)
+    if linkedin:
+        typer.echo(f"Ingesting LinkedIn export: {linkedin} ...")
+        summary = ingestor.ingest_linkedin(linkedin, candidate_id=candidate_id)
+        typer.secho(f"  -> {summary}", fg=typer.colors.GREEN)
     if github:
         if not settings.github_username:
             typer.secho("GITHUB_USERNAME is not set in .env.", fg=typer.colors.RED)
