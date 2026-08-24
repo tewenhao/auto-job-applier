@@ -82,9 +82,12 @@ def generate_cover_letter(
         "Write the cover letter now. Output only the letter."
     )
 
+    # Generous ceiling: Opus 5 thinks by default and thinking counts against
+    # max_tokens, so a low cap truncates the letter. The model stops at end_turn
+    # well before this; it's a ceiling, not a target.
     return llm.complete(
         task=Task.GENERATE,
         system=system,
         messages=[{"role": "user", "content": user}],
-        max_tokens=2000,
+        max_tokens=8000,
     )
