@@ -37,6 +37,15 @@ uv run ajp voice build # distill the voice profile (Phase 4)
 uv run ajp profile show# render the profile as Markdown (Phase 5)
 ```
 
+### Discovering roles from The Trackr
+
+The Trackr is a subscription SPA — we don't scrape its API (ToS/account risk).
+Instead, browse it yourself and grab the outbound application links with the
+`scripts/trackr-link-grabber.js` snippet (run it in your browser console on a
+Trackr tab; it copies the links), then feed them to `ajp listings add-batch`.
+The individual application pages (Greenhouse/Lever/company sites) are public and
+fetched normally.
+
 ## Layout
 
 ```
