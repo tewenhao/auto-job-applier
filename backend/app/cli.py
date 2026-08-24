@@ -192,8 +192,32 @@ def interview() -> None:
 
 @voice_app.command("build")
 def voice_build() -> None:
-    """Distill the voice profile from writing samples + interview transcript."""
-    typer.echo("voice build: not implemented yet (Phase 4).")
+    """Distill the voice profile from your writing samples, and save it."""
+    from app.llm import LLMClient
+    from app.profile.repository import ProfileRepository
+    from app.voice import distill_voice, draft_to_voice_profile
+
+    repo = ProfileRepository()
+    candidate = repo.get_or_create_default_candidate()
+    assert candidate.id is not None
+    samples = repo.list_writing_samples(candidate.id)
+    if not samples:
+        typer.secho(
+            "No writing samples. Ingest essays/cover letters first "
+            "(`ajp ingest --essay ... --cover-letter ...`).",
+            fg=typer.colors.YELLOW,
+        )
+        raise typer.Exit(code=1)
+
+    typer.echo(f"Distilling voice from {len(samples)} writing samples ...")
+    draft = distill_voice(LLMClient(), samples)
+    sample_ids = [s.id for s in samples if s.id is not None]
+    voice = repo.set_voice_profile(
+        draft_to_voice_profile(draft, candidate_id=candidate.id, sample_ids=sample_ids)
+    )
+    typer.secho(f"Tone: {voice.tone}", fg=typer.colors.GREEN)
+    typer.echo(voice.summary or "")
+    typer.secho("Saved voice profile.", fg=typer.colors.GREEN, bold=True)
 
 
 @profile_app.command("show")
