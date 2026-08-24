@@ -193,15 +193,28 @@ def interview() -> None:
 
 
 @voice_app.command("build")
-def voice_build() -> None:
+def voice_build(
+    harvest: bool = typer.Option(
+        True,
+        "--harvest/--no-harvest",
+        help="Harvest VOICE-flagged passages out of the master doc into writing "
+        "samples before distilling (idempotent).",
+    ),
+) -> None:
     """Distill the voice profile from your writing samples, and save it."""
     from app.llm import LLMClient
     from app.profile.repository import ProfileRepository
-    from app.voice import distill_voice, draft_to_voice_profile
+    from app.voice import distill_voice, draft_to_voice_profile, harvest_master_doc_voice
 
     repo = ProfileRepository()
     candidate = repo.get_or_create_default_candidate()
     assert candidate.id is not None
+
+    if harvest:
+        typer.echo("Harvesting master-doc VOICE passages ...")
+        n = harvest_master_doc_voice(LLMClient(), repo, candidate.id)
+        typer.secho(f"Harvested {n} master-doc voice passage(s).", fg=typer.colors.GREEN)
+
     samples = repo.list_writing_samples(candidate.id)
     if not samples:
         typer.secho(
@@ -397,8 +410,7 @@ def listings_add_batch(
             listing = ingestor.ingest_manual(candidate_id=candidate.id, url=url)
             ok += 1
             typer.secho(
-                f"  [{listing.score}] {listing.status:9} "
-                f"{listing.role_title} @ {listing.company}",
+                f"  [{listing.score}] {listing.status:9} {listing.role_title} @ {listing.company}",
                 fg=typer.colors.GREEN,
             )
         except Exception as exc:  # noqa: BLE001 - one bad URL shouldn't abort the batch
@@ -424,9 +436,7 @@ def listings_list(
     candidate = ProfileRepository().get_or_create_default_candidate()
     assert candidate.id is not None
     repo = ListingRepository()
-    listings = repo.list(
-        candidate.id, status=None if all_ else ListingStatus.SURFACED
-    )
+    listings = repo.list(candidate.id, status=None if all_ else ListingStatus.SURFACED)
     if not listings:
         typer.echo("No listings." if all_ else "No surfaced listings. Try --all.")
         return

@@ -56,12 +56,7 @@ class ProfileRepository:
 
     def get_candidate(self, candidate_id: UUID) -> Candidate | None:
         row = _first(
-            _rows(
-                self.client.table("candidate")
-                .select("*")
-                .eq("id", str(candidate_id))
-                .execute()
-            )
+            _rows(self.client.table("candidate").select("*").eq("id", str(candidate_id)).execute())
         )
         return Candidate.from_row(row) if row else None
 
@@ -110,9 +105,7 @@ class ProfileRepository:
         )
         query = query.eq("org", exp.org) if exp.org is not None else query.is_("org", "null")
         query = (
-            query.eq("title", exp.title)
-            if exp.title is not None
-            else query.is_("title", "null")
+            query.eq("title", exp.title) if exp.title is not None else query.is_("title", "null")
         )
         existing = _first(_rows(query.execute()))
 
@@ -145,18 +138,14 @@ class ProfileRepository:
 
     def clear_experiences(self, candidate_id: UUID) -> None:
         """Delete all experiences for a candidate."""
-        self.client.table("experiences").delete().eq(
-            "candidate_id", str(candidate_id)
-        ).execute()
+        self.client.table("experiences").delete().eq("candidate_id", str(candidate_id)).execute()
 
     def delete_experiences_by_ids(self, ids: list[UUID]) -> None:
         """Delete specific experiences by id (used to retire the pre-merge rows
         only after the merged rows are safely written)."""
         if not ids:
             return
-        self.client.table("experiences").delete().in_(
-            "id", [str(i) for i in ids]
-        ).execute()
+        self.client.table("experiences").delete().in_("id", [str(i) for i in ids]).execute()
 
     # --- skills (real unique constraint -> PostgREST upsert) ---
     def upsert_skill(self, skill: Skill) -> Skill:
@@ -258,6 +247,13 @@ class ProfileRepository:
         """Delete all writing samples for a candidate."""
         self.client.table("writing_samples").delete().eq(
             "candidate_id", str(candidate_id)
+        ).execute()
+
+    def delete_writing_samples_by_source(self, candidate_id: UUID, source: str) -> None:
+        """Delete writing samples for a candidate that came from a given source
+        (used to re-harvest a source idempotently without touching others)."""
+        self.client.table("writing_samples").delete().eq("candidate_id", str(candidate_id)).eq(
+            "source", source
         ).execute()
 
     # --- interview transcript ---
