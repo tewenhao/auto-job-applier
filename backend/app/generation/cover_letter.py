@@ -16,8 +16,32 @@ _ANTI_LLM = (
     "Write like a real person, not an AI. Avoid the usual tells: no 'I am writing "
     "to express my keen interest', no 'In today's fast-paced world', no hollow "
     "superlatives, no throat-clearing wind-ups, no restating the job title back at "
-    "them. Vary sentence length. Prefer one concrete, specific story over generic "
-    "enthusiasm. It should read as though the candidate wrote it in a focused hour."
+    "them, and no limp sign-offs like 'Thank you for reading' or 'Thank you for "
+    "your consideration'. Vary sentence length. It should read as though the "
+    "candidate wrote it in a focused hour."
+)
+
+# What a cover letter is FOR — the resume already carries the facts. This is the
+# guidance that stops the letter from becoming a prose resume.
+_PRINCIPLES = (
+    "A cover letter is NOT a prose version of the resume. The resume is attached "
+    "and already lists the roles, dates, stacks, and achievements; the reader has "
+    "it. So do NOT catalogue experiences or re-state bullet points. The letter's "
+    "job is the part a resume structurally cannot carry:\n"
+    "- MOTIVATION: a genuine, specific reason this candidate wants THIS company and "
+    "THIS role — tied to a real product, team, value, or problem from the company "
+    "brief, never generic praise.\n"
+    "- FIT: why the candidate's way of thinking and working suits what this team "
+    "actually needs (connect to the role's real demands, not a keyword list).\n"
+    "- DEPTH OVER BREADTH: pick ONE, at most two, threads from the candidate's "
+    "background and go deep on the thinking, the decision, the why — not a tour of "
+    "the CV. A resume says what; the letter says why it mattered and what it means "
+    "for this employer.\n"
+    "- FORWARD-LOOKING: what the candidate would bring and want to contribute here, "
+    "not a summary of the past.\n"
+    "It is fine to reference an experience the resume also lists — but only to open "
+    "up motivation, reasoning, or fit that the resume can't show. If a sentence "
+    "would sit equally well as a resume bullet, cut it."
 )
 
 
@@ -61,10 +85,15 @@ def generate_cover_letter(
 
     system = (
         "You write an outstanding, honest cover letter for the candidate.\n\n"
+        f"{_PRINCIPLES}\n\n"
         f"{_ANTI_LLM}\n\n"
-        "Ground every claim in the candidate's real experiences below — never "
-        "invent achievements. Connect specifically to the company (use the brief's "
-        "concrete hooks, not generic praise). Roughly 300-400 words.\n\n"
+        "GROUNDING: use only facts, numbers, titles, and outcomes that appear in "
+        "the candidate profile below. Never invent or embellish a figure (counts, "
+        "percentages, rankings) — if a number isn't in the profile, don't state it. "
+        "Connect specifically to the company using the brief's concrete hooks.\n\n"
+        "Length: roughly 250-350 words — short and targeted.\n\n"
+        "Close with a forward-looking final line, then sign off exactly:\n"
+        "Best wishes,\nEn Hao Tew\n\n"
         "The candidate's authentic voice:\n"
         f"{_voice_block(voice)}\n\n"
         "HARD RULES — never violate these handling notes, and never quote them:\n"
@@ -75,8 +104,12 @@ def generate_cover_letter(
         f"# The role\nCompany: {listing.company}\nTitle: {listing.role_title}\n"
         f"Summary: {listing.jd_summary}\n"
         f"Requirements: {', '.join(listing.requirements) or 'n/a'}\n\n"
-        f"# Company brief\n{(brief.brief if brief else '(none)')}\n\n"
-        f"# Candidate profile\n{profile_to_markdown(profile)}\n\n"
+        f"# Company brief (mine this for the specific 'why this company' hook)\n"
+        f"{(brief.brief if brief else '(none)')}\n\n"
+        f"# Candidate profile — this is also what the resume is built from, so the "
+        f"reader will see these facts on the resume. Do NOT re-list them; use them "
+        f"to find the ONE thread worth opening up on motivation and fit.\n"
+        f"{profile_to_markdown(profile)}\n\n"
         f"# The candidate's own past writing (imitate this voice, do not copy content)\n"
         f"{_samples_block(samples)}\n\n"
         "Write the cover letter now. Output only the letter."
