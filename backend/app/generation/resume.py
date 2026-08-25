@@ -108,12 +108,18 @@ _SYSTEM = (
     "and are not proof the candidate uses it. A language belongs on the resume "
     "only if it appears in the candidate's Skills or in an actual experience or "
     "project.\n\n"
-    "SHAPE (fit one page):\n"
-    "- At most 4 experiences, at most 3 projects, 2-3 bullets each.\n"
+    "SHAPE — FILL a full page (a sparse, half-empty resume looks worse than a "
+    "full one; use the whole page):\n"
+    "- Include the most relevant experiences — aim for 4-5 — with 3 substantive "
+    "bullets each.\n"
+    "- Include 3-4 projects/achievements, 2-3 bullets each.\n"
+    "- ERR ON THE SIDE OF MORE real, relevant content: the system trims any "
+    "overflow back to exactly one page, so a slightly-too-long draft is ideal — a "
+    "sparse one is a failure. Never hold back relevant material to stay short.\n"
     "- Education: the candidate's real schools; a short 'relevant modules' style "
     "bullet only where it helps. Keep societies, sports, and hobbies out of "
     "Education — those belong only in the Hobbies group.\n"
-    "- Skills: 3-5 grouped lines (e.g. Programming / AI-ML / Tools), only real "
+    "- Skills: 4-5 grouped lines (e.g. Programming / AI-ML / Tools), only real "
     "skills from the profile.\n"
     "- Include a final skills group labelled 'Hobbies' with the candidate's "
     "non-technical hobbies from the profile (each with how long they've done it "
@@ -187,7 +193,7 @@ def tailor_resume(
 def trim_one_step(
     resume: TailoredResume,
     *,
-    keep_experiences: int = 4,
+    keep_experiences: int = 5,
     keep_projects: int = 3,
     rich_bullets: int = 2,
 ) -> tuple[TailoredResume, str] | None:

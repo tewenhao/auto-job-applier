@@ -191,14 +191,15 @@ def test_trim_protects_projects_and_shaves_experience_detail_first() -> None:
 
 
 def test_trim_drops_experience_before_project_when_all_lean() -> None:
-    # Everything at the 2-bullet norm, 4 exp + 3 projects: an extra experience
-    # goes before any project is touched.
+    # Everything at the 2-bullet norm, 6 exp + 3 projects: an extra experience
+    # (beyond the keep floor of 5) goes before any project is touched.
     r = TailoredResume(
-        experience=[ExperienceEntry(title=t, bullets=["1", "2"]) for t in "ABCDE"],
+        experience=[ExperienceEntry(title=t, bullets=["1", "2"]) for t in "ABCDEF"],
         projects=[ProjectEntry(name=f"P{i}", bullets=["x", "y"]) for i in range(1, 4)],
     )
     _, note = trim_one_step(r)  # type: ignore[misc]
-    assert note == "dropped experience 'E'"  # 5th experience beyond keep floor of 4
+    assert note == "dropped experience 'F'"  # 6th experience beyond keep floor of 5
+    assert len(r.projects) == 3  # projects untouched
 
 
 def test_trim_shaves_fattest_bullet_first() -> None:
