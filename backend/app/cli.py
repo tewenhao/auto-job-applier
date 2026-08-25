@@ -260,6 +260,54 @@ def profile_show(
     typer.echo(profile_to_markdown(profile, include_handling_notes=notes))
 
 
+@profile_app.command("add-note")
+def profile_add_note(note: str) -> None:
+    """Add a candidate-level handling note (a 'do not surface' / framing rule).
+
+    Handling notes are hard constraints on every generated resume and cover
+    letter, and are never printed in the output themselves. Use them to suppress
+    or reframe something globally, e.g.
+    `ajp profile add-note "Do not mention being named by the Senior Minister of State."`
+    """
+    from app.profile.repository import ProfileRepository
+
+    repo = ProfileRepository()
+    candidate = repo.get_or_create_default_candidate()
+    candidate.handling_notes = [*candidate.handling_notes, note.strip()]
+    repo.update_candidate(candidate)
+    typer.secho(
+        f"Added handling note ({len(candidate.handling_notes)} total).", fg=typer.colors.GREEN
+    )
+
+
+@profile_app.command("list-notes")
+def profile_list_notes() -> None:
+    """List candidate-level handling notes (with their indices)."""
+    from app.profile.repository import ProfileRepository
+
+    candidate = ProfileRepository().get_or_create_default_candidate()
+    if not candidate.handling_notes:
+        typer.echo("(no candidate-level handling notes)")
+        return
+    for i, n in enumerate(candidate.handling_notes):
+        typer.echo(f"  [{i}] {n}")
+
+
+@profile_app.command("remove-note")
+def profile_remove_note(index: int) -> None:
+    """Remove a candidate-level handling note by its index (see `list-notes`)."""
+    from app.profile.repository import ProfileRepository
+
+    repo = ProfileRepository()
+    candidate = repo.get_or_create_default_candidate()
+    if not 0 <= index < len(candidate.handling_notes):
+        typer.secho(f"No note at index {index}. See `ajp profile list-notes`.", fg=typer.colors.RED)
+        raise typer.Exit(code=1)
+    removed = candidate.handling_notes.pop(index)
+    repo.update_candidate(candidate)
+    typer.secho(f"Removed: {removed}", fg=typer.colors.YELLOW)
+
+
 # --- preferences ---
 @prefs_app.command("derive")
 def preferences_derive() -> None:
