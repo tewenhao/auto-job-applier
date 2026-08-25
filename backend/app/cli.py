@@ -137,7 +137,11 @@ def ingest(
             return
         for f in files:
             typer.echo(f"Ingesting {source_type.value}: {f} ...")
-            summary = ingestor.ingest_document(f, source_type, candidate_id=candidate_id)
+            # After --fresh the tables are empty, so plain-insert (no natural-key
+            # dedup) to avoid collapsing distinct entries; consolidate merges later.
+            summary = ingestor.ingest_document(
+                f, source_type, candidate_id=candidate_id, dedup=not fresh
+            )
             typer.secho(f"  -> {summary}", fg=typer.colors.GREEN)
 
     if resume:

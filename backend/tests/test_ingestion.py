@@ -8,13 +8,71 @@ from uuid import uuid4
 
 import pytest
 
+from app.ingestion import pipeline as pl
 from app.ingestion.documents import extract_text, iter_documents
 from app.ingestion.github import build_github_profile
 from app.ingestion.mapping import apply_contact, normalize_date, to_experience, to_skill
-from app.ingestion.schema import ExtractedContact, ExtractedExperience, ExtractedSkill
-from app.profile.models import Candidate, ExperienceKind
+from app.ingestion.pipeline import Ingestor
+from app.ingestion.schema import (
+    ExtractedContact,
+    ExtractedExperience,
+    ExtractedSkill,
+    ProfileExtraction,
+)
+from app.profile.models import Candidate, ExperienceKind, SourceType
 
 CID = uuid4()
+
+
+class _FakeRepo:
+    """Records how experiences were written (upsert vs plain insert)."""
+
+    def __init__(self) -> None:
+        self.added: list[object] = []
+        self.upserted: list[object] = []
+
+    def add_source_document(self, doc):  # type: ignore[no-untyped-def]
+        doc.id = uuid4()
+        return doc
+
+    def get_candidate(self, candidate_id):  # type: ignore[no-untyped-def]
+        return None
+
+    def upsert_experience(self, exp):  # type: ignore[no-untyped-def]
+        self.upserted.append(exp)
+        return exp
+
+    def add_experience(self, exp):  # type: ignore[no-untyped-def]
+        self.added.append(exp)
+        return exp
+
+    def upsert_skill(self, skill):  # type: ignore[no-untyped-def]
+        return skill
+
+
+def test_fresh_ingest_inserts_without_dedup(tmp_path: Path, monkeypatch) -> None:  # type: ignore[no-untyped-def]
+    # Two distinct entries that share the natural key (same kind, null org/title):
+    # with dedup they'd collapse via upsert; after --fresh they must both survive.
+    twins = [
+        ExtractedExperience(kind=ExperienceKind.PROJECT, summary="Hackathon A"),
+        ExtractedExperience(kind=ExperienceKind.PROJECT, summary="Hackathon B"),
+    ]
+    monkeypatch.setattr(pl, "extract_profile", lambda *a, **k: ProfileExtraction(experiences=twins))
+    md = tmp_path / "master.md"
+    md.write_text("content", encoding="utf-8")
+
+    fresh_repo = _FakeRepo()
+    summary = Ingestor(fresh_repo, llm=None).ingest_document(  # type: ignore[arg-type]
+        md, SourceType.MASTER_DOC, candidate_id=CID, dedup=False
+    )
+    assert summary["experiences"] == 2
+    assert len(fresh_repo.added) == 2 and len(fresh_repo.upserted) == 0
+
+    incremental_repo = _FakeRepo()
+    Ingestor(incremental_repo, llm=None).ingest_document(  # type: ignore[arg-type]
+        md, SourceType.MASTER_DOC, candidate_id=CID, dedup=True
+    )
+    assert len(incremental_repo.upserted) == 2 and len(incremental_repo.added) == 0
 
 
 # --- documents ---

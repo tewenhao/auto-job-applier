@@ -28,9 +28,23 @@ class Ingestor:
         self.llm = llm
 
     def ingest_document(
-        self, path: str | Path, source_type: SourceType, *, candidate_id: UUID
+        self,
+        path: str | Path,
+        source_type: SourceType,
+        *,
+        candidate_id: UUID,
+        dedup: bool = True,
     ) -> dict[str, int]:
-        """Parse a document, retain its raw text, and fold it into the profile."""
+        """Parse a document, retain its raw text, and fold it into the profile.
+
+        ``dedup`` controls how experiences are written. With dedup (the default,
+        for incremental ingest) each experience upserts on its natural key
+        (kind, org, title) so re-ingesting the same source updates rather than
+        duplicates. With ``dedup=False`` (used after a ``--fresh`` clear) they are
+        plain-inserted, so two distinct entries that happen to share that key — or
+        both lack org/title — never collapse into one; semantic de-duplication is
+        left to ``consolidate``.
+        """
         path = Path(path)
         text = extract_text(path)
         doc = self.repo.add_source_document(
@@ -51,8 +65,9 @@ class Ingestor:
                 candidate = self.repo.get_candidate(candidate_id)
                 if candidate is not None:
                     self.repo.update_candidate(apply_contact(candidate, extraction.contact))
+            write_experience = self.repo.upsert_experience if dedup else self.repo.add_experience
             for x in extraction.experiences:
-                self.repo.upsert_experience(
+                write_experience(
                     to_experience(
                         x,
                         candidate_id=candidate_id,
