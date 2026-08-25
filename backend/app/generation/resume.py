@@ -77,8 +77,12 @@ _SYSTEM = (
     "TAILORING:\n"
     "- Choose the experiences, projects, and skills most relevant to THIS role, "
     "and order them most-relevant first.\n"
-    "- Rewrite each bullet to foreground what this employer cares about (from the "
-    "role's requirements), using the candidate's real work. Lead with impact.\n"
+    "- Favour DEPTH over breadth: a few rich, quantified experiences beat many "
+    "thin ones. Each chosen experience gets 3 substantive bullets.\n"
+    "- Write impact-first bullets: lead with the concrete outcome and the real "
+    "numbers the profile provides (scale, result, recognition, dataset size, "
+    "accuracy, placement, team size, adoption). Don't leave impact vague when the "
+    "profile quantifies it; don't write generic responsibility statements.\n"
     "- Emphasise 1-3 key terms or figures per bullet with **double asterisks**.\n\n"
     "GROUNDING (strict — a resume is unforgiving of invention):\n"
     "- Use only facts, numbers, titles, dates, and outcomes present in the "
@@ -89,7 +93,9 @@ _SYSTEM = (
     "unverifiable or must not be stated, omit it). State honest status; never "
     "imply production/adoption the profile doesn't support.\n\n"
     "SHAPE (fit one page):\n"
-    "- At most 4 experiences, at most 3 projects, 2-3 bullets each.\n"
+    "- Aim for the 3-4 most relevant experiences (3 bullets each) and 2-3 "
+    "projects — enough substance to fill a page, not so much it overflows and "
+    "has to be cut back to thin bullets.\n"
     "- Education: the candidate's real schools; a short 'relevant modules' style "
     "bullet only where it helps.\n"
     "- Skills: 3-5 grouped lines (e.g. Programming / AI-ML / Tools), only real "
@@ -144,42 +150,64 @@ def tailor_resume(
 
 
 def trim_one_step(
-    resume: TailoredResume, *, min_experiences: int = 2, min_bullets: int = 1
+    resume: TailoredResume,
+    *,
+    keep_experiences: int = 3,
+    keep_projects: int = 1,
+    rich_bullets: int = 2,
 ) -> tuple[TailoredResume, str] | None:
     """Return a copy of ``resume`` with the single least-valuable item removed,
-    plus a short description — or ``None`` when nothing can be trimmed without
-    crossing a floor.
+    plus a short description — or ``None`` when nothing more can go.
 
-    Lists are ordered most-relevant-first, so "last" always means least relevant.
-    Order of sacrifice: trim a bullet from the entry that has the most bullets
-    (shave breadth before depth); once every experience/project entry is at the
-    bullet floor, drop whole entries — projects first, then trailing experiences
-    down to ``min_experiences``.
+    Quality-preserving order: rather than shaving a bullet off every experience
+    (which leaves them all thin), first drop whole least-relevant *entries*, so
+    the experiences that survive keep their depth and numbers. Lists are ordered
+    most-relevant-first, so "last" is always the least relevant. Escalation:
+
+    1. extra projects beyond ``keep_projects``;
+    2. extra experiences beyond ``keep_experiences``;
+    3. bullets beyond ``rich_bullets`` on the fattest entry (light shaving);
+    4. remaining projects;
+    5. experiences down to a hard floor of 2;
+    6. last resort — shave toward a single bullet.
     """
     r = resume.model_copy(deep=True)
 
-    # 1) Shave a bullet from the fattest experience/project entry.
-    entries: list[ExperienceEntry | ProjectEntry] = [*r.experience, *r.projects]
-    fattest: ExperienceEntry | ProjectEntry | None = None
-    for entry in entries:
-        if len(entry.bullets) > min_bullets and (
-            fattest is None or len(entry.bullets) > len(fattest.bullets)
-        ):
-            fattest = entry
-    if fattest is not None:
-        fattest.bullets.pop()
-        label = getattr(fattest, "title", None) or getattr(fattest, "name", "an entry")
+    def _fattest(floor: int) -> ExperienceEntry | ProjectEntry | None:
+        entries: list[ExperienceEntry | ProjectEntry] = [*r.experience, *r.projects]
+        best: ExperienceEntry | ProjectEntry | None = None
+        for entry in entries:
+            if len(entry.bullets) > floor and (
+                best is None or len(entry.bullets) > len(best.bullets)
+            ):
+                best = entry
+        return best
+
+    def _shave(entry: ExperienceEntry | ProjectEntry) -> tuple[TailoredResume, str]:
+        entry.bullets.pop()
+        label = getattr(entry, "title", None) or getattr(entry, "name", "an entry")
         return r, f"dropped a bullet from '{label}'"
 
-    # 2) Drop a trailing project entry.
+    # 1) Extra projects beyond the keep floor.
+    if len(r.projects) > keep_projects:
+        return r, f"dropped project '{r.projects.pop().name}'"
+    # 2) Extra experiences beyond the keep floor.
+    if len(r.experience) > keep_experiences:
+        return r, f"dropped experience '{r.experience.pop().title}'"
+    # 3) Light shaving: only bullets beyond the "rich" floor.
+    fat = _fattest(rich_bullets)
+    if fat is not None:
+        return _shave(fat)
+    # 4) Remaining projects.
     if r.projects:
-        dropped = r.projects.pop()
-        return r, f"dropped project '{dropped.name}'"
-
-    # 3) Drop a trailing experience, down to the floor.
-    if len(r.experience) > min_experiences:
-        dropped_exp = r.experience.pop()
-        return r, f"dropped experience '{dropped_exp.title}'"
+        return r, f"dropped project '{r.projects.pop().name}'"
+    # 5) Experiences down to a hard floor of 2.
+    if len(r.experience) > 2:
+        return r, f"dropped experience '{r.experience.pop().title}'"
+    # 6) Last resort: shave toward a single bullet.
+    fat = _fattest(1)
+    if fat is not None:
+        return _shave(fat)
 
     return None
 

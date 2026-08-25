@@ -132,6 +132,21 @@ def _resume_for_trim() -> TailoredResume:
     )
 
 
+def test_trim_drops_whole_entries_before_shaving_rich_experiences() -> None:
+    # 4 rich experiences (3 bullets each) + 2 projects: the first trims should
+    # drop the least-relevant *entries*, not thin out every experience.
+    r = TailoredResume(
+        experience=[ExperienceEntry(title=t, bullets=["1", "2", "3"]) for t in "ABCD"],
+        projects=[ProjectEntry(name="P1", bullets=["x"]), ProjectEntry(name="P2", bullets=["y"])],
+    )
+    r1, n1 = trim_one_step(r)  # type: ignore[misc]
+    assert n1 == "dropped project 'P2'"  # extra project first
+    r2, n2 = trim_one_step(r1)  # type: ignore[misc]
+    assert n2 == "dropped experience 'D'"  # extra experience next
+    # Every surviving experience still has all 3 bullets — depth preserved.
+    assert all(len(e.bullets) == 3 for e in r2.experience)
+
+
 def test_trim_shaves_fattest_bullet_first() -> None:
     r = _resume_for_trim()
     trimmed, note = trim_one_step(r)  # type: ignore[misc]
