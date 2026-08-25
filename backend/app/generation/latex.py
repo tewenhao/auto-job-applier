@@ -216,13 +216,13 @@ def _render_education(entries: list[EducationEntry]) -> str:
     )
 
 
-def _exp_sort_key(entry: ExperienceEntry) -> tuple[int, int]:
-    """Reverse-chronological sort key from ``end_date`` (newest first).
+def _end_date_key(end_date: str) -> tuple[int, int]:
+    """Reverse-chronological sort key from an ``end_date`` (newest first).
 
-    Ongoing roles ('present'/'current'/blank) sort newest; a parseable
-    'YYYY-MM' or 'YYYY' sorts by (year, month); anything unparseable sorts oldest.
+    Ongoing ('present'/'current'/blank) sorts newest; a parseable 'YYYY-MM' or
+    'YYYY' sorts by (year, month); anything unparseable sorts oldest.
     """
-    raw = (entry.end_date or "").strip().lower()
+    raw = (end_date or "").strip().lower()
     if raw in {"present", "current", "ongoing", "now", ""}:
         return (9999, 13)
     m = re.match(r"(\d{4})(?:-(\d{1,2}))?", raw)
@@ -236,7 +236,7 @@ def _render_experience(entries: list[ExperienceEntry]) -> str:
         return ""
     # Display reverse-chronologically; the input order (relevance) is preserved
     # upstream for selection/trimming, so this only affects presentation.
-    entries = sorted(entries, key=_exp_sort_key, reverse=True)
+    entries = sorted(entries, key=lambda e: _end_date_key(e.end_date), reverse=True)
     blocks = []
     for e in entries:
         sub = (
@@ -258,6 +258,9 @@ def _render_experience(entries: list[ExperienceEntry]) -> str:
 def _render_projects(entries: list[ProjectEntry], title: str) -> str:
     if not entries:
         return ""
+    # Display reverse-chronologically, like experience; input order (relevance)
+    # is preserved upstream for selection/trimming.
+    entries = sorted(entries, key=lambda p: _end_date_key(p.end_date), reverse=True)
     blocks = []
     for p in entries:
         heading_left = f"\\textbf{{{_render_text(p.name)}}}"

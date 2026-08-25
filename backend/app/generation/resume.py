@@ -39,7 +39,8 @@ class ExperienceEntry(BaseModel):
 class ProjectEntry(BaseModel):
     name: str
     tools: str = ""  # short tool/tech list; rendered after the name as \emph{...}
-    dates: str = ""
+    dates: str = ""  # display string, e.g. "Sep 2025" or "2024 -- 2025"
+    end_date: str = ""  # sortable key: "YYYY-MM", "YYYY", or "present"
     bullets: list[str] = Field(default_factory=list)
 
 
@@ -103,9 +104,10 @@ _SYSTEM = (
     "- Title the projects section 'Hackathon Achievements' if the chosen entries "
     "are competition/hackathon results, else 'Projects'.\n\n"
     "ORDERING:\n"
-    "- List experiences most-relevant-first (this ranking decides what is kept if "
-    "space is tight); also give each a sortable 'end_date' ('YYYY-MM', 'YYYY', or "
-    "'present') — the renderer displays experience in reverse-chronological order.\n"
+    "- List experiences AND projects most-relevant-first (this ranking decides "
+    "what is kept if space is tight); also give each a sortable 'end_date' "
+    "('YYYY-MM', 'YYYY', or 'present') — the renderer displays both experience and "
+    "projects in reverse-chronological order.\n"
     "- Dates as 'Mon YYYY -- Mon YYYY' or 'Mon YYYY -- Present'."
 )
 

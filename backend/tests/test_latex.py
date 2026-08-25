@@ -121,6 +121,19 @@ def test_experience_rendered_reverse_chronological() -> None:
     assert order == sorted(order)  # Ongoing before Middle before Oldest
 
 
+def test_projects_rendered_reverse_chronological() -> None:
+    resume = TailoredResume(
+        projects=[
+            ProjectEntry(name="OldProj", end_date="2023", bullets=["x"]),
+            ProjectEntry(name="NewProj", end_date="2025-09", bullets=["x"]),
+            ProjectEntry(name="MidProj", end_date="2024", bullets=["x"]),
+        ]
+    )
+    tex = render_resume(resume, Candidate(full_name="X"))
+    order = [tex.index("NewProj"), tex.index("MidProj"), tex.index("OldProj")]
+    assert order == sorted(order)  # newest project first
+
+
 def _resume_for_trim() -> TailoredResume:
     return TailoredResume(
         experience=[
