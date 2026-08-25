@@ -22,8 +22,14 @@ def _profile_summary(profile) -> str:  # type: ignore[no-untyped-def]
     return "Experiences:\n" + "\n".join(exps) + "\n\nSkills: " + skills
 
 
-def generate_application(listing_id: UUID, *, refresh_company: bool = False) -> Application:
-    """Research the company and generate a cover letter for a listing."""
+def generate_application(
+    listing_id: UUID, *, refresh_company: bool = False, steer: str | None = None
+) -> Application:
+    """Research the company and generate a tailored resume + cover letter.
+
+    ``steer`` is optional free-text guidance passed to the resume tailorer to
+    override its selection/ranking (used when regenerating after review).
+    """
     listings = ListingRepository()
     gen = GenerationRepository()
     profiles = ProfileRepository()
@@ -52,7 +58,7 @@ def generate_application(listing_id: UUID, *, refresh_company: bool = False) -> 
 
     # Tailor the resume first, so its bullets can steer the cover letter away
     # from restating them.
-    resume = tailor_resume(llm, listing=listing, profile=profile, brief=brief)
+    resume = tailor_resume(llm, listing=listing, profile=profile, brief=brief, steer=steer)
     resume_tex = render_resume(resume, profile.candidate)
 
     letter = generate_cover_letter(
@@ -71,4 +77,6 @@ def generate_application(listing_id: UUID, *, refresh_company: bool = False) -> 
     application.cover_letter = letter
     application.resume_content = resume.model_dump(mode="json")
     application.resume_tex = resume_tex
+    if steer and steer.strip():
+        application.meta = {**application.meta, "steer": steer.strip()}
     return gen.upsert_application(application)

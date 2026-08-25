@@ -49,6 +49,17 @@ class SkillGroup(BaseModel):
     items: str  # e.g. "Python, Google Apps Script, LaTeX"
 
 
+class RankedItem(BaseModel):
+    """The model's relevance judgement for one experience or project, so the
+    selection is inspectable and steerable rather than a black box."""
+
+    kind: str  # "experience" | "project"
+    label: str  # human-readable, e.g. "AI Engineer @ RSAF RAiD" or "SMU LIT Hackathon"
+    score: int = Field(ge=0, le=100)  # relevance to THIS role
+    included: bool  # did it make the one-page resume?
+    rationale: str  # one or two sentences: why this score, and why in or out
+
+
 class TailoredResume(BaseModel):
     """A one-page resume selected + rewritten for one listing.
 
@@ -57,6 +68,7 @@ class TailoredResume(BaseModel):
     comes verbatim from the candidate record at render time.
     """
 
+    ranking: list[RankedItem] = Field(default_factory=list)  # inspectable selection
     education: list[EducationEntry] = Field(default_factory=list)
     experience: list[ExperienceEntry] = Field(default_factory=list)
     projects: list[ProjectEntry] = Field(default_factory=list)
@@ -113,7 +125,18 @@ _SYSTEM = (
     "what is kept if space is tight); also give each a sortable 'end_date' "
     "('YYYY-MM', 'YYYY', or 'present') — the renderer displays both experience and "
     "projects in reverse-chronological order.\n"
-    "- Dates as 'Mon YYYY -- Mon YYYY' or 'Mon YYYY -- Present'."
+    "- Dates as 'Mon YYYY -- Mon YYYY' or 'Mon YYYY -- Present'.\n\n"
+    "RANKING (make your selection transparent):\n"
+    "- Also return 'ranking': EVERY experience and project in the profile you "
+    "considered — both the ones you included and the ones you left off — each with "
+    "kind ('experience'/'project'), a human-readable label, a 0-100 relevance "
+    "score for THIS role, an 'included' flag, and a one-line rationale for the "
+    "score and the in/out decision. Order the ranking by score, highest first. "
+    "The 'included' items must match what you put in the experience/projects "
+    "sections.\n"
+    "- If the user provides STEERING NOTES, treat them as overriding guidance on "
+    "what to include, exclude, or rank higher/lower — follow them, and reflect "
+    "them in both the ranking and the resume."
 )
 
 
@@ -123,10 +146,21 @@ def tailor_resume(
     listing: Listing,
     profile: MasterProfile,
     brief: CompanyBrief | None = None,
+    steer: str | None = None,
 ) -> TailoredResume:
-    """Produce a structured, one-page resume tailored to ``listing``."""
+    """Produce a structured, one-page resume tailored to ``listing``.
+
+    ``steer`` is optional free-text guidance from the user on what to include,
+    exclude, or rank higher/lower — used to regenerate after reviewing the
+    ranking.
+    """
     notes = _handling_notes(profile)
     rules = "\n".join(f"- {n}" for n in notes) or "(none)"
+    steer_block = (
+        f"# STEERING NOTES from the candidate (override selection/ranking accordingly)\n{steer}\n\n"
+        if steer and steer.strip()
+        else ""
+    )
 
     user = (
         f"# Target role\nCompany: {listing.company}\nTitle: {listing.role_title}\n"
@@ -135,9 +169,10 @@ def tailor_resume(
         f"# Company brief (for emphasis only — do not add facts from it to the resume)\n"
         f"{(brief.brief if brief else '(none)')}\n\n"
         f"# Candidate profile (the ONLY source of facts)\n{profile_to_markdown(profile)}\n\n"
+        f"{steer_block}"
         "HARD RULES — never violate these handling notes, and never quote them:\n"
         f"{rules}\n\n"
-        "Produce the tailored one-page resume now."
+        "Produce the tailored one-page resume now, including the ranking."
     )
 
     return llm.parse(

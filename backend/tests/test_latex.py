@@ -4,6 +4,9 @@ from __future__ import annotations
 
 from pathlib import Path
 
+import pytest
+from pydantic import ValidationError
+
 from app.generation.latex import (
     _render_text,
     compile_to_page_limit,
@@ -14,6 +17,7 @@ from app.generation.resume import (
     EducationEntry,
     ExperienceEntry,
     ProjectEntry,
+    RankedItem,
     SkillGroup,
     TailoredResume,
     trim_one_step,
@@ -98,6 +102,30 @@ def test_render_resume_slot_mapping_and_structure() -> None:
     # Skills line.
     assert r"\textbf{Programming}{: Python, \LaTeX}" not in tex  # LLM gives plain text
     assert r"\textbf{Programming}{: Python, LaTeX}" in tex
+
+
+def test_ranking_is_carried_but_not_rendered() -> None:
+    # The ranking is metadata for review/steering; it must never leak into the .tex.
+    resume = TailoredResume(
+        ranking=[
+            RankedItem(
+                kind="experience", label="RSAF RAiD", score=95, included=True, rationale="core"
+            ),
+            RankedItem(
+                kind="project", label="panic button", score=20, included=False, rationale="weak"
+            ),
+        ],
+        experience=[ExperienceEntry(title="AI Engineer", org="RSAF", bullets=["x"])],
+    )
+    tex = render_resume(resume, Candidate(full_name="X"))
+    assert "panic button" not in tex and "rationale" not in tex
+    # Round-trips through JSON persistence (resume_content is a dict).
+    assert TailoredResume.model_validate(resume.model_dump(mode="json")).ranking[0].score == 95
+
+
+def test_ranked_item_score_bounds() -> None:
+    with pytest.raises(ValidationError):
+        RankedItem(kind="experience", label="x", score=150, included=True, rationale="y")
 
 
 def test_empty_sections_are_dropped() -> None:

@@ -586,6 +586,13 @@ def generate(
     max_pages: int = typer.Option(
         1, "--max-pages", help="Trim the resume to fit within this many pages (needs a compiler)."
     ),
+    steer: str | None = typer.Option(
+        None,
+        "--steer",
+        help="Free-text guidance to override the resume's selection/ranking "
+        "(e.g. 'include Jane Street; rank web-raider first; drop BMTC'). "
+        "Review the ranking with `ajp application ranking <id>` first.",
+    ),
 ) -> None:
     """Generate a tailored resume + cover letter for a listing.
 
@@ -594,6 +601,9 @@ def generate(
     if ``latexmk``/``pdflatex`` is installed) under ``<out-dir>/<company>-<timestamp>/``.
     When a compiler is present, the resume is compiled, its page count measured,
     and the least-relevant content trimmed until it fits ``--max-pages``.
+
+    The tailorer also returns a ranking of every experience/project it considered;
+    review it with `ajp application ranking <id>`, then regenerate with ``--steer``.
     """
     from datetime import datetime
     from pathlib import Path
@@ -607,7 +617,9 @@ def generate(
     from app.profile.repository import ProfileRepository
 
     typer.echo("Researching the company, tailoring the resume, and writing the letter ...")
-    application = generate_application(UUID(listing_id), refresh_company=refresh_company)
+    application = generate_application(
+        UUID(listing_id), refresh_company=refresh_company, steer=steer
+    )
 
     listing = ListingRepository().get(application.listing_id)
     company = (listing.company if listing else None) or "application"
@@ -666,6 +678,57 @@ def generate(
             fg=typer.colors.YELLOW,
         )
     typer.echo(f"View it with `ajp application show {application.id}`.")
+    typer.echo(
+        f"See why each experience/project was chosen: `ajp application ranking {application.id}` "
+        '(then regenerate with `ajp generate <listing_id> --steer "..."`).'
+    )
+
+
+def _print_ranking(resume_content: dict) -> None:  # type: ignore[type-arg]
+    """Render a TailoredResume's ranking as a readable table."""
+    from app.generation.resume import TailoredResume
+
+    resume = TailoredResume.model_validate(resume_content)
+    if not resume.ranking:
+        typer.echo("(no ranking recorded — regenerate to produce one)")
+        return
+    ranked = sorted(resume.ranking, key=lambda r: r.score, reverse=True)
+    typer.secho("\n--- Selection ranking (why each item was chosen) ---", bold=True)
+    for r in ranked:
+        mark = (
+            typer.style("✓ in ", fg=typer.colors.GREEN)
+            if r.included
+            else typer.style("· out", fg=typer.colors.BRIGHT_BLACK)
+        )
+        head = f"  {mark}  [{r.score:>3}] {r.kind:<10} {r.label}"
+        typer.echo(head)
+        typer.secho(f"          {r.rationale}", fg=typer.colors.BRIGHT_BLACK)
+
+
+@application_app.command("ranking")
+def application_ranking(application_id: str) -> None:
+    """Show how the model ranked experiences/projects for this application.
+
+    Every considered item gets a 0-100 relevance score, an in/out decision, and
+    a one-line rationale. To change the outcome, regenerate with steering:
+    `ajp generate <listing_id> --steer "include X; rank Y first; drop Z"`.
+    """
+    from uuid import UUID
+
+    from app.generation.repository import GenerationRepository
+
+    application = GenerationRepository().get_application(UUID(application_id))
+    if application is None:
+        typer.secho("No application with that id.", fg=typer.colors.RED)
+        raise typer.Exit(code=1)
+    if not application.resume_content:
+        typer.secho("This application has no resume yet.", fg=typer.colors.YELLOW)
+        raise typer.Exit(code=1)
+
+    typer.secho(f"Application {application.id}", bold=True)
+    if application.meta.get("steer"):
+        typer.secho(f"Active steer: {application.meta['steer']}", fg=typer.colors.CYAN)
+    _print_ranking(application.resume_content)
 
 
 @application_app.command("show")
