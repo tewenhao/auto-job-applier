@@ -527,18 +527,26 @@ def generate(
     pdf: bool = typer.Option(
         True, "--pdf/--no-pdf", help="Compile a PDF if a LaTeX toolchain is available."
     ),
+    max_pages: int = typer.Option(
+        1, "--max-pages", help="Trim the resume to fit within this many pages (needs a compiler)."
+    ),
 ) -> None:
     """Generate a tailored resume + cover letter for a listing.
 
     Researches the company, tailors the resume into the LaTeX template, writes
     the cover letter, and saves ``resume.tex`` / ``cover_letter.txt`` (and a PDF
     if ``latexmk``/``pdflatex`` is installed) under ``<out-dir>/<application id>/``.
+    When a compiler is present, the resume is compiled, its page count measured,
+    and the least-relevant content trimmed until it fits ``--max-pages``.
     """
     from pathlib import Path
     from uuid import UUID
 
-    from app.generation.latex import compile_pdf
+    from app.generation.latex import compile_to_page_limit
     from app.generation.pipeline import generate_application
+    from app.generation.repository import GenerationRepository
+    from app.generation.resume import TailoredResume
+    from app.profile.repository import ProfileRepository
 
     typer.echo("Researching the company, tailoring the resume, and writing the letter ...")
     application = generate_application(UUID(listing_id), refresh_company=refresh_company)
@@ -547,28 +555,56 @@ def generate(
     dest.mkdir(parents=True, exist_ok=True)
     if application.cover_letter:
         (dest / "cover_letter.txt").write_text(application.cover_letter)
-    tex_path = None
-    if application.resume_tex:
-        tex_path = dest / "resume.tex"
-        tex_path.write_text(application.resume_tex)
 
-    typer.secho(f"Draft saved (application {application.id}) -> {dest}/", fg=typer.colors.GREEN, bold=True)
-    if tex_path is not None:
-        typer.echo(f"  resume: {tex_path}")
-        if pdf:
-            pdf_path = compile_pdf(tex_path)
-            if pdf_path is not None:
-                from app.generation.repository import GenerationRepository
+    typer.secho(
+        f"Draft saved (application {application.id}) -> {dest}/", fg=typer.colors.GREEN, bold=True
+    )
 
-                application.resume_pdf_path = str(pdf_path)
-                GenerationRepository().upsert_application(application)
-                typer.secho(f"  pdf:    {pdf_path}", fg=typer.colors.GREEN)
-            else:
-                typer.secho(
-                    "  pdf:    not compiled (no latexmk/pdflatex found or compile failed) — "
-                    "the .tex is ready to compile.",
-                    fg=typer.colors.YELLOW,
-                )
+    if not application.resume_content:
+        typer.echo(f"View it with `ajp application show {application.id}`.")
+        return
+
+    tex_path = dest / "resume.tex"
+    resume = TailoredResume.model_validate(application.resume_content)
+
+    if not pdf:
+        tex_path.write_text(application.resume_tex or "")
+        typer.echo(f"  resume: {tex_path} (not compiled: --no-pdf)")
+        typer.echo(f"View it with `ajp application show {application.id}`.")
+        return
+
+    candidate = ProfileRepository().get_candidate(application.candidate_id)
+    assert candidate is not None
+    result = compile_to_page_limit(resume, candidate, tex_path, max_pages=max_pages)
+
+    # Persist whatever the loop settled on (trimming may have changed the resume).
+    application.resume_tex = result.tex
+    application.resume_content = result.resume.model_dump(mode="json")
+    if result.pdf_path is not None:
+        application.resume_pdf_path = str(result.pdf_path)
+    GenerationRepository().upsert_application(application)
+
+    typer.echo(f"  resume: {tex_path}")
+    if result.trims:
+        typer.secho(
+            f"  trimmed to fit {max_pages} page(s): " + "; ".join(result.trims),
+            fg=typer.colors.YELLOW,
+        )
+    if result.pdf_path is not None:
+        colour = typer.colors.GREEN if result.within_limit else typer.colors.YELLOW
+        typer.secho(f"  pdf:    {result.pdf_path} ({result.pages} page(s))", fg=colour)
+        if not result.within_limit:
+            typer.secho(
+                "  note:   still over the limit at the content floor — trim manually or "
+                "raise --max-pages.",
+                fg=typer.colors.YELLOW,
+            )
+    else:
+        typer.secho(
+            "  pdf:    not compiled (no latexmk/pdflatex found or compile failed) — "
+            "the .tex is ready to compile; page count unverified.",
+            fg=typer.colors.YELLOW,
+        )
     typer.echo(f"View it with `ajp application show {application.id}`.")
 
 

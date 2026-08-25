@@ -131,6 +131,47 @@ def tailor_resume(
     )
 
 
+def trim_one_step(
+    resume: TailoredResume, *, min_experiences: int = 2, min_bullets: int = 1
+) -> tuple[TailoredResume, str] | None:
+    """Return a copy of ``resume`` with the single least-valuable item removed,
+    plus a short description — or ``None`` when nothing can be trimmed without
+    crossing a floor.
+
+    Lists are ordered most-relevant-first, so "last" always means least relevant.
+    Order of sacrifice: trim a bullet from the entry that has the most bullets
+    (shave breadth before depth); once every experience/project entry is at the
+    bullet floor, drop whole entries — projects first, then trailing experiences
+    down to ``min_experiences``.
+    """
+    r = resume.model_copy(deep=True)
+
+    # 1) Shave a bullet from the fattest experience/project entry.
+    entries: list[ExperienceEntry | ProjectEntry] = [*r.experience, *r.projects]
+    fattest: ExperienceEntry | ProjectEntry | None = None
+    for entry in entries:
+        if len(entry.bullets) > min_bullets and (
+            fattest is None or len(entry.bullets) > len(fattest.bullets)
+        ):
+            fattest = entry
+    if fattest is not None:
+        fattest.bullets.pop()
+        label = getattr(fattest, "title", None) or getattr(fattest, "name", "an entry")
+        return r, f"dropped a bullet from '{label}'"
+
+    # 2) Drop a trailing project entry.
+    if r.projects:
+        dropped = r.projects.pop()
+        return r, f"dropped project '{dropped.name}'"
+
+    # 3) Drop a trailing experience, down to the floor.
+    if len(r.experience) > min_experiences:
+        dropped_exp = r.experience.pop()
+        return r, f"dropped experience '{dropped_exp.title}'"
+
+    return None
+
+
 def resume_bullet_texts(resume: TailoredResume) -> list[str]:
     """Flatten every bullet (bold markers stripped) — used to tell the cover
     letter not to restate what the resume already says."""

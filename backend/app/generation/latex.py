@@ -15,6 +15,7 @@ from __future__ import annotations
 import re
 import shutil
 import subprocess
+from dataclasses import dataclass, field
 from pathlib import Path
 
 from app.generation.resume import (
@@ -22,6 +23,7 @@ from app.generation.resume import (
     ExperienceEntry,
     ProjectEntry,
     TailoredResume,
+    trim_one_step,
 )
 from app.profile.models import Candidate
 
@@ -304,3 +306,84 @@ def compile_pdf(tex_path: Path) -> Path | None:
         return None
     pdf = tex_path.with_suffix(".pdf")
     return pdf if pdf.exists() else None
+
+
+def has_latex_toolchain() -> bool:
+    """Whether a LaTeX engine is available to compile PDFs."""
+    return bool(shutil.which("latexmk") or shutil.which("pdflatex"))
+
+
+def page_count(pdf_path: Path) -> int | None:
+    """Number of pages in a PDF, or ``None`` if it can't be read."""
+    try:
+        from pypdf import PdfReader
+
+        return len(PdfReader(str(pdf_path)).pages)
+    except Exception:  # noqa: BLE001 - a broken/locked PDF should not crash generation
+        return None
+
+
+@dataclass
+class OnePageResult:
+    """Outcome of rendering a resume to a page limit."""
+
+    resume: TailoredResume  # possibly trimmed to fit
+    tex: str  # the final rendered .tex (matches ``resume``)
+    pdf_path: Path | None  # compiled PDF, or None (no toolchain / compile failed)
+    pages: int | None  # final page count, or None if not compiled/countable
+    trims: list[str] = field(default_factory=list)  # what was removed, in order
+    within_limit: bool = False  # True iff compiled and pages <= max_pages
+
+
+def compile_to_page_limit(
+    resume: TailoredResume,
+    candidate: Candidate,
+    tex_path: Path,
+    *,
+    max_pages: int = 1,
+    max_iterations: int = 12,
+) -> OnePageResult:
+    """Render ``resume``, compile, and trim-and-recompile until it fits within
+    ``max_pages`` (or nothing more can be trimmed).
+
+    Always writes the final ``.tex`` to ``tex_path``. If no LaTeX toolchain is
+    present, writes the untrimmed ``.tex`` and returns with ``pages=None`` — page
+    count can't be verified without compiling, so no trimming is attempted.
+    """
+    tex_path = Path(tex_path)
+
+    def _write(r: TailoredResume) -> str:
+        tex = render_resume(r, candidate)
+        tex_path.write_text(tex)
+        return tex
+
+    current = resume
+    tex = _write(current)
+
+    if not has_latex_toolchain():
+        return OnePageResult(resume=current, tex=tex, pdf_path=None, pages=None)
+
+    trims: list[str] = []
+    for _ in range(max_iterations):
+        pdf = compile_pdf(tex_path)
+        pages = page_count(pdf) if pdf else None
+
+        # Compile failed or page count unreadable: stop, don't trim blindly.
+        if pages is None:
+            return OnePageResult(current, tex, pdf, None, trims, within_limit=False)
+        if pages <= max_pages:
+            return OnePageResult(current, tex, pdf, pages, trims, within_limit=True)
+
+        step = trim_one_step(current)
+        if step is None:  # at the content floor and still over — hand back best effort
+            return OnePageResult(current, tex, pdf, pages, trims, within_limit=False)
+        current, note = step
+        trims.append(note)
+        tex = _write(current)
+
+    # Ran out of iterations; report the last compiled state.
+    pdf = compile_pdf(tex_path)
+    pages = page_count(pdf) if pdf else None
+    return OnePageResult(
+        current, tex, pdf, pages, trims, within_limit=bool(pages and pages <= max_pages)
+    )

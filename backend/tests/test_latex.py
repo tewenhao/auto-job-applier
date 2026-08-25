@@ -2,13 +2,21 @@
 
 from __future__ import annotations
 
-from app.generation.latex import _render_text, latex_escape, render_resume
+from pathlib import Path
+
+from app.generation.latex import (
+    _render_text,
+    compile_to_page_limit,
+    latex_escape,
+    render_resume,
+)
 from app.generation.resume import (
     EducationEntry,
     ExperienceEntry,
     ProjectEntry,
     SkillGroup,
     TailoredResume,
+    trim_one_step,
 )
 from app.profile.models import Candidate
 
@@ -90,3 +98,55 @@ def test_empty_sections_are_dropped() -> None:
     assert r"\section{Education}" not in tex
     assert r"\section{Experience}" not in tex
     assert r"\begin{document}" in tex and r"\end{document}" in tex
+
+
+def _resume_for_trim() -> TailoredResume:
+    return TailoredResume(
+        experience=[
+            ExperienceEntry(title="A", bullets=["a1", "a2", "a3"]),
+            ExperienceEntry(title="B", bullets=["b1"]),
+            ExperienceEntry(title="C", bullets=["c1"]),
+        ],
+        projects=[ProjectEntry(name="P", bullets=["p1", "p2"])],
+    )
+
+
+def test_trim_shaves_fattest_bullet_first() -> None:
+    r = _resume_for_trim()
+    trimmed, note = trim_one_step(r)  # type: ignore[misc]
+    assert "A" in note and "bullet" in note
+    assert [len(e.bullets) for e in trimmed.experience] == [2, 1, 1]
+    # Original is untouched (copy semantics).
+    assert [len(e.bullets) for e in r.experience] == [3, 1, 1]
+
+
+def test_trim_then_drops_project_then_experience_then_stops() -> None:
+    # Everything already at the bullet floor: no more bullets to shave.
+    r = TailoredResume(
+        experience=[
+            ExperienceEntry(title="A", bullets=["a1"]),
+            ExperienceEntry(title="B", bullets=["b1"]),
+            ExperienceEntry(title="C", bullets=["c1"]),
+        ],
+        projects=[ProjectEntry(name="P", bullets=["p1"])],
+    )
+    r2, note = trim_one_step(r)  # type: ignore[misc]
+    assert note == "dropped project 'P'" and not r2.projects
+
+    r3, note = trim_one_step(r2)  # type: ignore[misc]
+    assert note == "dropped experience 'C'"  # down toward the floor
+    assert [e.title for e in r3.experience] == ["A", "B"]
+
+    # At min_experiences (2) with no projects/bullets left -> nothing to trim.
+    assert trim_one_step(r3) is None
+
+
+def test_compile_to_page_limit_without_toolchain_writes_tex(tmp_path: Path) -> None:
+    # No LaTeX toolchain in CI: the loop must not trim, and must still write .tex.
+    r = _resume_for_trim()
+    tex_path = tmp_path / "resume.tex"
+    result = compile_to_page_limit(r, Candidate(full_name="X"), tex_path)
+    assert tex_path.exists()
+    assert result.pages is None  # unverifiable without compiling
+    assert result.trims == []  # never trim blindly
+    assert result.resume == r
