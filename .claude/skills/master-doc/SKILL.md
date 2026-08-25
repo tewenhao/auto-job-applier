@@ -159,3 +159,7 @@ Before handing back, confirm:
 - `TEMPLATE.md` — a copy-paste skeleton with all block types annotated.
 - `EXAMPLE.md` — one fully worked (synthetic) entry showing FACTS / VOICE /
   PRIVATE / LINKS in context.
+- The `master-doc-write` skill — the line-level formatting/parse-safety pass.
+  This skill decides *content*; run `master-doc-write` before `ajp ingest` to
+  verify every heading parses (distinct name/role, org, readable dates) so no
+  entry is dropped or extracted thin.
