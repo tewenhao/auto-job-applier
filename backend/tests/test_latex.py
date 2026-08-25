@@ -132,19 +132,32 @@ def _resume_for_trim() -> TailoredResume:
     )
 
 
-def test_trim_drops_whole_entries_before_shaving_rich_experiences() -> None:
-    # 4 rich experiences (3 bullets each) + 2 projects: the first trims should
-    # drop the least-relevant *entries*, not thin out every experience.
+def test_trim_protects_projects_and_shaves_experience_detail_first() -> None:
+    # 4 experiences (one with a 3rd bullet) + 3 projects: the first trims should
+    # shave the surplus EXPERIENCE bullet, never a project (projects are strong
+    # signals and must be protected).
     r = TailoredResume(
-        experience=[ExperienceEntry(title=t, bullets=["1", "2", "3"]) for t in "ABCD"],
-        projects=[ProjectEntry(name="P1", bullets=["x"]), ProjectEntry(name="P2", bullets=["y"])],
+        experience=[
+            ExperienceEntry(title="A", bullets=["1", "2", "3"]),
+            *[ExperienceEntry(title=t, bullets=["1", "2"]) for t in "BCD"],
+        ],
+        projects=[ProjectEntry(name=f"P{i}", bullets=["x", "y"]) for i in range(1, 4)],
     )
     r1, n1 = trim_one_step(r)  # type: ignore[misc]
-    assert n1 == "dropped project 'P2'"  # extra project first
-    r2, n2 = trim_one_step(r1)  # type: ignore[misc]
-    assert n2 == "dropped experience 'D'"  # extra experience next
-    # Every surviving experience still has all 3 bullets — depth preserved.
-    assert all(len(e.bullets) == 3 for e in r2.experience)
+    assert n1 == "dropped a bullet from 'A'"  # surplus experience bullet first
+    assert len(r1.projects) == 3  # all projects intact
+    assert [len(e.bullets) for e in r1.experience] == [2, 2, 2, 2]
+
+
+def test_trim_drops_experience_before_project_when_all_lean() -> None:
+    # Everything at the 2-bullet norm, 4 exp + 3 projects: an extra experience
+    # goes before any project is touched.
+    r = TailoredResume(
+        experience=[ExperienceEntry(title=t, bullets=["1", "2"]) for t in "ABCDE"],
+        projects=[ProjectEntry(name=f"P{i}", bullets=["x", "y"]) for i in range(1, 4)],
+    )
+    _, note = trim_one_step(r)  # type: ignore[misc]
+    assert note == "dropped experience 'E'"  # 5th experience beyond keep floor of 4
 
 
 def test_trim_shaves_fattest_bullet_first() -> None:
@@ -156,8 +169,9 @@ def test_trim_shaves_fattest_bullet_first() -> None:
     assert [len(e.bullets) for e in r.experience] == [3, 1, 1]
 
 
-def test_trim_then_drops_project_then_experience_then_stops() -> None:
-    # Everything already at the bullet floor: no more bullets to shave.
+def test_trim_reaches_floors_then_stops() -> None:
+    # 3 lean experiences + 1 lean project. Experiences trim toward the floor of
+    # 2 before the (protected) single project; then nothing more can go.
     r = TailoredResume(
         experience=[
             ExperienceEntry(title="A", bullets=["a1"]),
@@ -167,14 +181,12 @@ def test_trim_then_drops_project_then_experience_then_stops() -> None:
         projects=[ProjectEntry(name="P", bullets=["p1"])],
     )
     r2, note = trim_one_step(r)  # type: ignore[misc]
-    assert note == "dropped project 'P'" and not r2.projects
+    assert note == "dropped experience 'C'"  # experience to floor before the project
+    assert [e.title for e in r2.experience] == ["A", "B"]
+    assert len(r2.projects) == 1  # project protected
 
-    r3, note = trim_one_step(r2)  # type: ignore[misc]
-    assert note == "dropped experience 'C'"  # down toward the floor
-    assert [e.title for e in r3.experience] == ["A", "B"]
-
-    # At min_experiences (2) with no projects/bullets left -> nothing to trim.
-    assert trim_one_step(r3) is None
+    # At the floors (2 experiences, 1 project, all single-bullet): nothing to trim.
+    assert trim_one_step(r2) is None
 
 
 def test_compile_to_page_limit_without_toolchain_writes_tex(tmp_path: Path) -> None:

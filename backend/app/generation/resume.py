@@ -77,13 +77,17 @@ _SYSTEM = (
     "TAILORING:\n"
     "- Choose the experiences, projects, and skills most relevant to THIS role, "
     "and order them most-relevant first.\n"
-    "- Favour DEPTH over breadth: a few rich, quantified experiences beat many "
-    "thin ones. Each chosen experience gets 3 substantive bullets.\n"
-    "- Write impact-first bullets: lead with the concrete outcome and the real "
-    "numbers the profile provides (scale, result, recognition, dataset size, "
-    "accuracy, placement, team size, adoption). Don't leave impact vague when the "
-    "profile quantifies it; don't write generic responsibility statements.\n"
+    "- Write dense, impact-first bullets: lead with the concrete outcome and the "
+    "real headline numbers the profile provides (scale, result, recognition, "
+    "dataset size, accuracy, placement, team size, adoption). Pack the key metric "
+    "INTO a bullet rather than adding more bullets. Don't leave impact vague when "
+    "the profile quantifies it; don't write generic responsibility statements.\n"
     "- Emphasise 1-3 key terms or figures per bullet with **double asterisks**.\n\n"
+    "NO DUPLICATION:\n"
+    "- Every fact appears in exactly ONE place. Never repeat an item across "
+    "sections — in particular, hobbies, sports, societies, and clubs appear ONLY "
+    "in the 'Hobbies' group, never under Education; a programme, competition, or "
+    "award appears once.\n\n"
     "GROUNDING (strict — a resume is unforgiving of invention):\n"
     "- Use only facts, numbers, titles, dates, and outcomes present in the "
     "profile. NEVER invent or inflate a metric (percentages, counts, rankings, "
@@ -92,12 +96,15 @@ _SYSTEM = (
     "let them govern which figures may appear (e.g. if a note says a number is "
     "unverifiable or must not be stated, omit it). State honest status; never "
     "imply production/adoption the profile doesn't support.\n\n"
-    "SHAPE (fit one page):\n"
-    "- Aim for the 3-4 most relevant experiences (3 bullets each) and 2-3 "
-    "projects — enough substance to fill a page, not so much it overflows and "
-    "has to be cut back to thin bullets.\n"
-    "- Education: the candidate's real schools; a short 'relevant modules' style "
-    "bullet only where it helps.\n"
+    "SHAPE (a tight one page — this layout is known to fit):\n"
+    "- 4 experiences, 2-3 dense bullets each (2 is the norm; use a 3rd only for a "
+    "standout role that genuinely warrants it).\n"
+    "- 3 projects, ~2 bullets each. KEEP the projects section rich — the "
+    "candidate's hackathon wins are strong signals; do not shrink projects to "
+    "make room. Trim experience detail before projects.\n"
+    "- Education: TIGHT — 1-2 short bullets only (a 'relevant modules' line, and "
+    "optionally ONE line for a top scholarship/honour). Do NOT list societies, "
+    "sports, clubs, extracurriculars, or hobbies under Education.\n"
     "- Skills: 3-5 grouped lines (e.g. Programming / AI-ML / Tools), only real "
     "skills from the profile.\n"
     "- ALWAYS include a final skills group labelled 'Hobbies' with the "
@@ -152,29 +159,31 @@ def tailor_resume(
 def trim_one_step(
     resume: TailoredResume,
     *,
-    keep_experiences: int = 3,
-    keep_projects: int = 1,
+    keep_experiences: int = 4,
+    keep_projects: int = 3,
     rich_bullets: int = 2,
 ) -> tuple[TailoredResume, str] | None:
     """Return a copy of ``resume`` with the single least-valuable item removed,
     plus a short description — or ``None`` when nothing more can go.
 
-    Quality-preserving order: rather than shaving a bullet off every experience
-    (which leaves them all thin), first drop whole least-relevant *entries*, so
-    the experiences that survive keep their depth and numbers. Lists are ordered
+    Projects (the candidate's hackathon wins) are strong signals, so they are
+    protected: trim EXPERIENCE detail before touching projects. Lists are ordered
     most-relevant-first, so "last" is always the least relevant. Escalation:
 
-    1. extra projects beyond ``keep_projects``;
+    1. bullets beyond ``rich_bullets`` on the fattest EXPERIENCE (least damaging);
     2. extra experiences beyond ``keep_experiences``;
-    3. bullets beyond ``rich_bullets`` on the fattest entry (light shaving);
-    4. remaining projects;
+    3. extra projects beyond ``keep_projects``;
+    4. bullets beyond ``rich_bullets`` on the fattest project;
     5. experiences down to a hard floor of 2;
-    6. last resort — shave toward a single bullet.
+    6. projects down to a hard floor of 1;
+    7. last resort — shave toward a single bullet anywhere.
     """
     r = resume.model_copy(deep=True)
 
-    def _fattest(floor: int) -> ExperienceEntry | ProjectEntry | None:
-        entries: list[ExperienceEntry | ProjectEntry] = [*r.experience, *r.projects]
+    def _fattest(
+        entries: list[ExperienceEntry] | list[ProjectEntry] | list[ExperienceEntry | ProjectEntry],
+        floor: int,
+    ) -> ExperienceEntry | ProjectEntry | None:
         best: ExperienceEntry | ProjectEntry | None = None
         for entry in entries:
             if len(entry.bullets) > floor and (
@@ -188,24 +197,29 @@ def trim_one_step(
         label = getattr(entry, "title", None) or getattr(entry, "name", "an entry")
         return r, f"dropped a bullet from '{label}'"
 
-    # 1) Extra projects beyond the keep floor.
-    if len(r.projects) > keep_projects:
-        return r, f"dropped project '{r.projects.pop().name}'"
-    # 2) Extra experiences beyond the keep floor.
-    if len(r.experience) > keep_experiences:
-        return r, f"dropped experience '{r.experience.pop().title}'"
-    # 3) Light shaving: only bullets beyond the "rich" floor.
-    fat = _fattest(rich_bullets)
+    # 1) Shave experience detail first (bullets beyond the rich floor).
+    fat = _fattest(r.experience, rich_bullets)
     if fat is not None:
         return _shave(fat)
-    # 4) Remaining projects.
-    if r.projects:
+    # 2) Drop extra experiences beyond the keep floor.
+    if len(r.experience) > keep_experiences:
+        return r, f"dropped experience '{r.experience.pop().title}'"
+    # 3) Drop extra projects beyond the keep floor.
+    if len(r.projects) > keep_projects:
         return r, f"dropped project '{r.projects.pop().name}'"
-    # 5) Experiences down to a hard floor of 2.
+    # 4) Shave project bullets beyond the rich floor.
+    fat = _fattest(r.projects, rich_bullets)
+    if fat is not None:
+        return _shave(fat)
+    # 5) Drop experiences down to a hard floor of 2.
     if len(r.experience) > 2:
         return r, f"dropped experience '{r.experience.pop().title}'"
-    # 6) Last resort: shave toward a single bullet.
-    fat = _fattest(1)
+    # 6) Drop projects down to a hard floor of 1.
+    if len(r.projects) > 1:
+        return r, f"dropped project '{r.projects.pop().name}'"
+    # 7) Last resort: shave toward a single bullet anywhere.
+    everything: list[ExperienceEntry | ProjectEntry] = [*r.experience, *r.projects]
+    fat = _fattest(everything, 1)
     if fat is not None:
         return _shave(fat)
 
