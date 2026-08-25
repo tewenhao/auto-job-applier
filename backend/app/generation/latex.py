@@ -208,9 +208,27 @@ def _render_education(entries: list[EducationEntry]) -> str:
     )
 
 
+def _exp_sort_key(entry: ExperienceEntry) -> tuple[int, int]:
+    """Reverse-chronological sort key from ``end_date`` (newest first).
+
+    Ongoing roles ('present'/'current'/blank) sort newest; a parseable
+    'YYYY-MM' or 'YYYY' sorts by (year, month); anything unparseable sorts oldest.
+    """
+    raw = (entry.end_date or "").strip().lower()
+    if raw in {"present", "current", "ongoing", "now", ""}:
+        return (9999, 13)
+    m = re.match(r"(\d{4})(?:-(\d{1,2}))?", raw)
+    if not m:
+        return (0, 0)
+    return (int(m.group(1)), int(m.group(2)) if m.group(2) else 12)
+
+
 def _render_experience(entries: list[ExperienceEntry]) -> str:
     if not entries:
         return ""
+    # Display reverse-chronologically; the input order (relevance) is preserved
+    # upstream for selection/trimming, so this only affects presentation.
+    entries = sorted(entries, key=_exp_sort_key, reverse=True)
     blocks = []
     for e in entries:
         sub = (

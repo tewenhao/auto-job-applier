@@ -100,6 +100,20 @@ def test_empty_sections_are_dropped() -> None:
     assert r"\begin{document}" in tex and r"\end{document}" in tex
 
 
+def test_experience_rendered_reverse_chronological() -> None:
+    # Given out of order + varied end_date formats, display is newest-first.
+    resume = TailoredResume(
+        experience=[
+            ExperienceEntry(title="Oldest", end_date="2023-06", bullets=["x"]),
+            ExperienceEntry(title="Ongoing", end_date="present", bullets=["x"]),
+            ExperienceEntry(title="Middle", end_date="2025", bullets=["x"]),
+        ]
+    )
+    tex = render_resume(resume, Candidate(full_name="X"))
+    order = [tex.index("{Ongoing}"), tex.index("{Middle}"), tex.index("{Oldest}")]
+    assert order == sorted(order)  # Ongoing before Middle before Oldest
+
+
 def _resume_for_trim() -> TailoredResume:
     return TailoredResume(
         experience=[

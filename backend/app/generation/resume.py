@@ -31,7 +31,8 @@ class ExperienceEntry(BaseModel):
     title: str
     org: str = ""
     location: str = ""
-    dates: str = ""
+    dates: str = ""  # display string, e.g. "Sep 2024 -- Feb 2025"
+    end_date: str = ""  # sortable key: "YYYY-MM", "YYYY", or "present" (for ongoing)
     bullets: list[str] = Field(default_factory=list)
 
 
@@ -93,9 +94,20 @@ _SYSTEM = (
     "bullet only where it helps.\n"
     "- Skills: 3-5 grouped lines (e.g. Programming / AI-ML / Tools), only real "
     "skills from the profile.\n"
+    "- ALWAYS include a final skills group labelled 'Hobbies' with the "
+    "candidate's non-technical hobbies from the profile, each with how long "
+    "they've done it and any achievement (e.g. 'Fencing (~10 yrs, varsity "
+    "medallist, university team); Piano (15 yrs, songwriting)'). This humanises "
+    "the resume — never omit it if the profile has hobbies.\n"
     "- Title the projects section 'Hackathon Achievements' if the chosen entries "
-    "are competition/hackathon results, else 'Projects'.\n"
-    "- Dates as 'Mon YYYY -- Mon YYYY' or 'Mon YYYY -- Present'."
+    "are competition/hackathon results, else 'Projects'.\n\n"
+    "ORDERING:\n"
+    "- List EXPERIENCE most-relevant-first (this ranking decides what is kept if "
+    "space is tight). For each experience also give 'end_date' as a sortable "
+    "'YYYY-MM' (or 'YYYY', or 'present' if ongoing) — the renderer re-sorts the "
+    "experience section into reverse-chronological order for display.\n"
+    "- List PROJECTS by achievement/relevance weight (kept as given).\n"
+    "- Display dates as 'Mon YYYY -- Mon YYYY' or 'Mon YYYY -- Present'."
 )
 
 

@@ -24,6 +24,10 @@ node_modules/
 .next/
 frontend/.env*
 
+# --- Generated application outputs ---
+out/
+applications/
+
 # --- OS / editor ---
 .DS_Store
 .idea/

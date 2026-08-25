@@ -34,6 +34,14 @@ def _split(value: str | None) -> list[str] | None:
     return [v.strip() for v in value.split(",") if v.strip()]
 
 
+def _slug(text: str) -> str:
+    """A filesystem-friendly, human-readable slug (e.g. 'Jane Street' -> 'jane-street')."""
+    import re
+
+    slug = re.sub(r"[^a-z0-9]+", "-", text.lower()).strip("-")
+    return slug or "application"
+
+
 @app.command()
 def check() -> None:
     """Validate that configuration loads and report which inputs are wired up.
@@ -522,7 +530,7 @@ def generate(
         False, "--refresh-company", help="Re-run company research instead of using the cache."
     ),
     out_dir: str = typer.Option(
-        "applications", "--out-dir", help="Directory to write the .tex / .pdf / cover letter into."
+        "out", "--out-dir", help="Directory to write the .tex / .pdf / cover letter into."
     ),
     pdf: bool = typer.Option(
         True, "--pdf/--no-pdf", help="Compile a PDF if a LaTeX toolchain is available."
@@ -535,10 +543,11 @@ def generate(
 
     Researches the company, tailors the resume into the LaTeX template, writes
     the cover letter, and saves ``resume.tex`` / ``cover_letter.txt`` (and a PDF
-    if ``latexmk``/``pdflatex`` is installed) under ``<out-dir>/<application id>/``.
+    if ``latexmk``/``pdflatex`` is installed) under ``<out-dir>/<company>-<timestamp>/``.
     When a compiler is present, the resume is compiled, its page count measured,
     and the least-relevant content trimmed until it fits ``--max-pages``.
     """
+    from datetime import datetime
     from pathlib import Path
     from uuid import UUID
 
@@ -546,12 +555,15 @@ def generate(
     from app.generation.pipeline import generate_application
     from app.generation.repository import GenerationRepository
     from app.generation.resume import TailoredResume
+    from app.listings.repository import ListingRepository
     from app.profile.repository import ProfileRepository
 
     typer.echo("Researching the company, tailoring the resume, and writing the letter ...")
     application = generate_application(UUID(listing_id), refresh_company=refresh_company)
 
-    dest = Path(out_dir) / str(application.id)
+    listing = ListingRepository().get(application.listing_id)
+    company = (listing.company if listing else None) or "application"
+    dest = Path(out_dir) / f"{_slug(company)}-{datetime.now():%Y%m%d-%H%M%S}"
     dest.mkdir(parents=True, exist_ok=True)
     if application.cover_letter:
         (dest / "cover_letter.txt").write_text(application.cover_letter)
