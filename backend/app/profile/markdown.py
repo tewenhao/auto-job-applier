@@ -71,7 +71,10 @@ def profile_to_markdown(profile: MasterProfile, *, include_handling_notes: bool 
         out += ["", "## GitHub", f"[@{gh.username}](https://github.com/{gh.username})"]
         if gh.languages:
             langs = ", ".join(sorted(gh.languages, key=lambda k: -_as_num(gh.languages[k])))
-            out.append(f"Languages: {langs}")
+            out.append(
+                "Repo language bytes (NOISY — GitHub counts generated/vendored/dependency "
+                f"code; NOT a verified skills list): {langs}"
+            )
         out.append(f"{len(gh.repos)} repositories.")
 
     if profile.preferences:
