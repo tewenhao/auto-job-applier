@@ -130,6 +130,11 @@ _ESCAPES: tuple[tuple[str, str], ...] = (
 )
 
 _BOLD = re.compile(r"\*\*(.+?)\*\*")
+# A tilde that means "approximately" (precedes a number) should render as the
+# math tilde $\sim$, not the upright \textasciitilde. Protect it through escaping
+# with a sentinel that contains no LaTeX specials.
+_APPROX_TILDE = re.compile(r"~(?=\s*\d)")
+_SIM_SENTINEL = "\x00SIM\x00"
 
 
 def latex_escape(text: str) -> str:
@@ -143,9 +148,12 @@ def _render_text(text: str) -> str:
     """Escape a bullet, then turn ``**bold**`` markers into ``\\textbf{}``.
 
     Escape first (the marker asterisks survive it), so any specials inside the
-    bolded span are escaped too.
+    bolded span are escaped too. An "approximately" tilde (``~`` before a number)
+    becomes ``$\\sim$``; any other ``~`` stays a literal tilde.
     """
-    return _BOLD.sub(r"\\textbf{\1}", latex_escape(text))
+    text = _APPROX_TILDE.sub(_SIM_SENTINEL, text)
+    text = latex_escape(text).replace(_SIM_SENTINEL, r"$\sim$")
+    return _BOLD.sub(r"\\textbf{\1}", text)
 
 
 def _items(bullets: list[str]) -> str:

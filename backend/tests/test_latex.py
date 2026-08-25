@@ -30,6 +30,13 @@ def test_bold_markers_after_escaping() -> None:
     assert _render_text("improved by **15%** overall") == r"improved by \textbf{15\%} overall"
 
 
+def test_approximate_tilde_becomes_math_sim() -> None:
+    # "~" before a number -> $\sim$; a bare "~" stays a literal tilde.
+    assert _render_text("1 of ~75 participants") == r"1 of $\sim$75 participants"
+    assert _render_text("~10 years") == r"$\sim$10 years"
+    assert _render_text("path a~b") == r"path a\textasciitilde{}b"
+
+
 def test_render_resume_slot_mapping_and_structure() -> None:
     candidate = Candidate(
         full_name="En Hao Tew",
