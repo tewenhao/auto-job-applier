@@ -71,6 +71,18 @@ def _samples_block(samples: list[WritingSample]) -> str:
     return "\n\n".join(f"[{s.source}] {(s.text or '')[:_MAX_SAMPLE_CHARS]}" for s in samples[:3])
 
 
+def _resume_points_block(points: list[str] | None) -> str:
+    if not points:
+        return ""
+    listed = "\n".join(f"- {p}" for p in points[:20])
+    return (
+        "\n\n# Already on the resume (the reader will see these) — do NOT restate "
+        "these bullets; at most, open ONE of them up into motivation/why the "
+        "resume can't show:\n"
+        f"{listed}"
+    )
+
+
 def generate_cover_letter(
     llm: LLMClient,
     *,
@@ -79,6 +91,7 @@ def generate_cover_letter(
     voice: VoiceProfile | None,
     samples: list[WritingSample],
     brief: CompanyBrief | None,
+    resume_points: list[str] | None = None,
 ) -> str:
     notes = _handling_notes(profile)
     rules = "\n".join(f"- {n}" for n in notes) or "(none)"
@@ -122,7 +135,8 @@ def generate_cover_letter(
         f"to find the ONE thread worth opening up on motivation and fit.\n"
         f"{profile_to_markdown(profile)}\n\n"
         f"# The candidate's own past writing (imitate this voice, do not copy content)\n"
-        f"{_samples_block(samples)}\n\n"
+        f"{_samples_block(samples)}"
+        f"{_resume_points_block(resume_points)}\n\n"
         "Write the cover letter now. Output only the letter."
     )
 

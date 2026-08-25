@@ -521,20 +521,55 @@ def generate(
     refresh_company: bool = typer.Option(
         False, "--refresh-company", help="Re-run company research instead of using the cache."
     ),
+    out_dir: str = typer.Option(
+        "applications", "--out-dir", help="Directory to write the .tex / .pdf / cover letter into."
+    ),
+    pdf: bool = typer.Option(
+        True, "--pdf/--no-pdf", help="Compile a PDF if a LaTeX toolchain is available."
+    ),
 ) -> None:
-    """Generate a cover letter for a listing (research the company, then write)."""
+    """Generate a tailored resume + cover letter for a listing.
+
+    Researches the company, tailors the resume into the LaTeX template, writes
+    the cover letter, and saves ``resume.tex`` / ``cover_letter.txt`` (and a PDF
+    if ``latexmk``/``pdflatex`` is installed) under ``<out-dir>/<application id>/``.
+    """
+    from pathlib import Path
     from uuid import UUID
 
+    from app.generation.latex import compile_pdf
     from app.generation.pipeline import generate_application
 
-    typer.echo("Researching the company and writing the cover letter ...")
+    typer.echo("Researching the company, tailoring the resume, and writing the letter ...")
     application = generate_application(UUID(listing_id), refresh_company=refresh_company)
-    typer.secho(
-        f"Draft saved (application {application.id}). "
-        f"View it with `ajp application show {application.id}`.",
-        fg=typer.colors.GREEN,
-        bold=True,
-    )
+
+    dest = Path(out_dir) / str(application.id)
+    dest.mkdir(parents=True, exist_ok=True)
+    if application.cover_letter:
+        (dest / "cover_letter.txt").write_text(application.cover_letter)
+    tex_path = None
+    if application.resume_tex:
+        tex_path = dest / "resume.tex"
+        tex_path.write_text(application.resume_tex)
+
+    typer.secho(f"Draft saved (application {application.id}) -> {dest}/", fg=typer.colors.GREEN, bold=True)
+    if tex_path is not None:
+        typer.echo(f"  resume: {tex_path}")
+        if pdf:
+            pdf_path = compile_pdf(tex_path)
+            if pdf_path is not None:
+                from app.generation.repository import GenerationRepository
+
+                application.resume_pdf_path = str(pdf_path)
+                GenerationRepository().upsert_application(application)
+                typer.secho(f"  pdf:    {pdf_path}", fg=typer.colors.GREEN)
+            else:
+                typer.secho(
+                    "  pdf:    not compiled (no latexmk/pdflatex found or compile failed) — "
+                    "the .tex is ready to compile.",
+                    fg=typer.colors.YELLOW,
+                )
+    typer.echo(f"View it with `ajp application show {application.id}`.")
 
 
 @application_app.command("show")
@@ -550,6 +585,11 @@ def application_show(application_id: str) -> None:
         raise typer.Exit(code=1)
 
     typer.secho(f"Application {application.id}  |  status {application.status}", bold=True)
+    if application.resume_tex:
+        typer.secho("\n--- Resume ---", bold=True)
+        if application.resume_pdf_path:
+            typer.echo(f"PDF: {application.resume_pdf_path}")
+        typer.echo("(LaTeX stored; use `ajp generate` to (re)write resume.tex to disk)")
     if application.cover_letter:
         typer.secho("\n--- Cover letter ---\n", bold=True)
         typer.echo(application.cover_letter)

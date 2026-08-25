@@ -1,0 +1,306 @@
+r"""Render a ``TailoredResume`` into the candidate's LaTeX resume template
+(jakegut/resume, https://github.com/jakegut/resume) and optionally compile a PDF.
+
+The preamble and custom macros are kept verbatim from the candidate's own
+``.tex``; only the header (name/contacts) is parametrised. Each section emits the
+template's macros with the correct per-section slot mapping:
+
+    Education  \resumeSubheading{school}{location}{degree}{dates}
+    Experience \resumeSubheading{title}{date}{org}{location}
+    Projects   \resumeProjectHeading{\textbf{name} $|$ \emph{tools}}{dates}
+"""
+
+from __future__ import annotations
+
+import re
+import shutil
+import subprocess
+from pathlib import Path
+
+from app.generation.resume import (
+    EducationEntry,
+    ExperienceEntry,
+    ProjectEntry,
+    TailoredResume,
+)
+from app.profile.models import Candidate
+
+# Preamble + custom commands, verbatim from the candidate's template. Ends just
+# before \begin{document}; the body (header + sections) is appended after it.
+_PREAMBLE = r"""%-------------------------
+% Resume in Latex
+% Based off of: https://github.com/jakegut/resume
+% License : MIT
+%------------------------
+
+\documentclass[letterpaper,10pt]{article}
+
+\usepackage{latexsym}
+\usepackage[empty]{fullpage}
+\usepackage{titlesec}
+\usepackage{marvosym}
+\usepackage[usenames,dvipsnames]{color}
+\usepackage{verbatim}
+\usepackage{enumitem}
+\usepackage[hidelinks]{hyperref}
+\usepackage{fancyhdr}
+\usepackage[english]{babel}
+\usepackage{tabularx}
+\input{glyphtounicode}
+
+\usepackage{charter}
+
+\pagestyle{fancy}
+\fancyhf{}
+\fancyfoot{}
+\renewcommand{\headrulewidth}{0pt}
+\renewcommand{\footrulewidth}{0pt}
+
+\addtolength{\oddsidemargin}{-0.5in}
+\addtolength{\evensidemargin}{-0.5in}
+\addtolength{\textwidth}{1in}
+\addtolength{\topmargin}{-.5in}
+\addtolength{\textheight}{1.0in}
+
+\urlstyle{same}
+
+\raggedbottom
+\raggedright
+\setlength{\tabcolsep}{0in}
+
+\titleformat{\section}{
+  \vspace{-4pt}\scshape\raggedright\large
+}{}{0em}{}[\color{black}\titlerule \vspace{-5pt}]
+
+\pdfgentounicode=1
+
+\newcommand{\resumeItem}[1]{
+  \item\small{
+    {#1 \vspace{-2pt}}
+  }
+}
+
+\newcommand{\resumeSubheading}[4]{
+  \vspace{-2pt}\item
+    \begin{tabular*}{0.97\textwidth}[t]{l@{\extracolsep{\fill}}r}
+      \textbf{#1} & #2 \\
+      \textit{\small#3} & \textit{\small #4} \\
+    \end{tabular*}\vspace{-7pt}
+}
+
+\newcommand{\resumeSubSubheading}[2]{
+    \item
+    \begin{tabular*}{0.97\textwidth}{l@{\extracolsep{\fill}}r}
+      \textit{\small#1} & \textit{\small #2} \\
+    \end{tabular*}\vspace{-7pt}
+}
+
+\newcommand{\resumeProjectHeading}[2]{
+    \item
+    \begin{tabular*}{0.97\textwidth}{l@{\extracolsep{\fill}}r}
+      \small#1 & #2 \\
+    \end{tabular*}\vspace{-7pt}
+}
+
+\newcommand{\resumeSubItem}[1]{\resumeItem{#1}\vspace{-4pt}}
+
+\renewcommand\labelitemii{$\vcenter{\hbox{\tiny$\bullet$}}$}
+
+\newcommand{\resumeSubHeadingListStart}{\begin{itemize}[leftmargin=0.15in, label={}]}
+\newcommand{\resumeSubHeadingListEnd}{\end{itemize}}
+\newcommand{\resumeItemListStart}{\begin{itemize}}
+\newcommand{\resumeItemListEnd}{\end{itemize}\vspace{-5pt}}
+"""
+
+# LaTeX special characters that must be escaped in body text (order matters:
+# backslash first so we don't double-escape the replacements).
+_ESCAPES: tuple[tuple[str, str], ...] = (
+    ("\\", r"\textbackslash{}"),
+    ("&", r"\&"),
+    ("%", r"\%"),
+    ("$", r"\$"),
+    ("#", r"\#"),
+    ("_", r"\_"),
+    ("{", r"\{"),
+    ("}", r"\}"),
+    ("~", r"\textasciitilde{}"),
+    ("^", r"\textasciicircum{}"),
+)
+
+_BOLD = re.compile(r"\*\*(.+?)\*\*")
+
+
+def latex_escape(text: str) -> str:
+    """Escape LaTeX specials in plain body text."""
+    for ch, rep in _ESCAPES:
+        text = text.replace(ch, rep)
+    return text
+
+
+def _render_text(text: str) -> str:
+    """Escape a bullet, then turn ``**bold**`` markers into ``\\textbf{}``.
+
+    Escape first (the marker asterisks survive it), so any specials inside the
+    bolded span are escaped too.
+    """
+    return _BOLD.sub(r"\\textbf{\1}", latex_escape(text))
+
+
+def _items(bullets: list[str]) -> str:
+    if not bullets:
+        return ""
+    lines = "\n".join(f"        \\resumeItem{{{_render_text(b)}}}" for b in bullets)
+    return "\n      \\resumeItemListStart\n" + lines + "\n      \\resumeItemListEnd"
+
+
+def _render_header(candidate: Candidate) -> str:
+    name = candidate.full_name or "Candidate"
+    bits: list[str] = []
+    if candidate.phone:
+        bits.append(latex_escape(candidate.phone))
+    if candidate.email:
+        bits.append(
+            f"\\href{{mailto:{candidate.email}}}{{\\underline{{{latex_escape(candidate.email)}}}}}"
+        )
+    if candidate.linkedin_url:
+        bits.append(
+            f"\\href{{{candidate.linkedin_url}}}{{\\underline{{{_display_url(candidate.linkedin_url)}}}}}"
+        )
+    if candidate.github_url:
+        bits.append(
+            f"\\href{{{candidate.github_url}}}{{\\underline{{{_display_url(candidate.github_url)}}}}}"
+        )
+    contact = " $|$\n    ".join(bits)
+    return (
+        "\\begin{center}\n"
+        f"    \\textbf{{\\Huge \\scshape {latex_escape(name)}}} \\\\ \\vspace{{1pt}}\n"
+        f"    \\small {contact}\n"
+        "\\end{center}"
+    )
+
+
+def _display_url(url: str) -> str:
+    """Strip scheme/www for a compact clickable label."""
+    label = re.sub(r"^https?://(www\.)?", "", url).rstrip("/")
+    return latex_escape(label)
+
+
+def _render_education(entries: list[EducationEntry]) -> str:
+    if not entries:
+        return ""
+    blocks = []
+    for e in entries:
+        sub = (
+            "    \\resumeSubheading\n"
+            f"      {{{_render_text(e.school)}}}{{{_render_text(e.location)}}}\n"
+            f"      {{{_render_text(e.degree)}}}{{{_render_text(e.dates)}}}"
+        )
+        blocks.append(sub + _items(e.bullets))
+    body = "\n".join(blocks)
+    return (
+        "%-----------EDUCATION-----------\n"
+        "\\section{Education}\n"
+        "  \\resumeSubHeadingListStart\n"
+        f"{body}\n"
+        "  \\resumeSubHeadingListEnd"
+    )
+
+
+def _render_experience(entries: list[ExperienceEntry]) -> str:
+    if not entries:
+        return ""
+    blocks = []
+    for e in entries:
+        sub = (
+            "    \\resumeSubheading\n"
+            f"      {{{_render_text(e.title)}}}{{{_render_text(e.dates)}}}\n"
+            f"      {{{_render_text(e.org)}}}{{{_render_text(e.location)}}}"
+        )
+        blocks.append(sub + _items(e.bullets))
+    body = "\n\n".join(blocks)
+    return (
+        "%-----------EXPERIENCE-----------\n"
+        "\\section{Experience}\n"
+        "  \\resumeSubHeadingListStart\n\n"
+        f"{body}\n"
+        "  \\resumeSubHeadingListEnd"
+    )
+
+
+def _render_projects(entries: list[ProjectEntry], title: str) -> str:
+    if not entries:
+        return ""
+    blocks = []
+    for p in entries:
+        heading_left = f"\\textbf{{{_render_text(p.name)}}}"
+        if p.tools:
+            heading_left += f" $|$ \\emph{{{_render_text(p.tools)}}}"
+        head = (
+            f"    \\resumeProjectHeading\n          {{{heading_left}}}{{{_render_text(p.dates)}}}"
+        )
+        blocks.append(head + _items(p.bullets))
+    body = "\n\n".join(blocks)
+    return (
+        "%-----------PROJECTS-----------\n"
+        f"\\section{{{latex_escape(title)}}}\n"
+        "  \\resumeSubHeadingListStart\n\n"
+        f"{body}\n"
+        "  \\resumeSubHeadingListEnd"
+    )
+
+
+def _render_skills(groups: list) -> str:  # type: ignore[type-arg]
+    if not groups:
+        return ""
+    lines = " \\\\\n".join(
+        f"     \\textbf{{{_render_text(g.label)}}}{{: {_render_text(g.items)}}}" for g in groups
+    )
+    return (
+        "%-----------SKILLS-----------\n"
+        "\\section{Skills \\& Hobbies}\n"
+        " \\begin{itemize}[leftmargin=0.15in, label={}]\n"
+        "    \\small{\\item{\n"
+        f"{lines}\n"
+        "    }}\n"
+        " \\end{itemize}"
+    )
+
+
+def render_resume(resume: TailoredResume, candidate: Candidate) -> str:
+    """Render the full ``.tex`` document string."""
+    sections = [
+        _render_education(resume.education),
+        _render_experience(resume.experience),
+        _render_projects(resume.projects, resume.projects_title),
+        _render_skills(resume.skills),
+    ]
+    body = "\n\n\n".join(s for s in sections if s)
+    return (
+        f"{_PREAMBLE}\n"
+        "\\begin{document}\n\n"
+        f"{_render_header(candidate)}\n\n\n"
+        f"{body}\n\n"
+        "\\end{document}\n"
+    )
+
+
+def compile_pdf(tex_path: Path) -> Path | None:
+    """Compile ``tex_path`` to a PDF if a LaTeX toolchain is available.
+
+    Returns the PDF path on success, or ``None`` if no toolchain is present or
+    compilation fails (the ``.tex`` is always usable on its own).
+    """
+    tex_path = Path(tex_path)
+    engine = shutil.which("latexmk") or shutil.which("pdflatex")
+    if engine is None:
+        return None
+    if engine.endswith("latexmk"):
+        cmd = [engine, "-pdf", "-interaction=nonstopmode", "-halt-on-error", tex_path.name]
+    else:
+        cmd = [engine, "-interaction=nonstopmode", "-halt-on-error", tex_path.name]
+    try:
+        subprocess.run(cmd, cwd=tex_path.parent, capture_output=True, timeout=120, check=True)
+    except (subprocess.CalledProcessError, subprocess.TimeoutExpired):
+        return None
+    pdf = tex_path.with_suffix(".pdf")
+    return pdf if pdf.exists() else None

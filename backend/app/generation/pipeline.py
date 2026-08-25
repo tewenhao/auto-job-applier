@@ -6,8 +6,10 @@ from uuid import UUID
 
 from app.generation.company import research_company
 from app.generation.cover_letter import generate_cover_letter
+from app.generation.latex import render_resume
 from app.generation.models import Application
 from app.generation.repository import GenerationRepository
+from app.generation.resume import resume_bullet_texts, tailor_resume
 from app.listings.models import normalize_company
 from app.listings.repository import ListingRepository
 from app.llm import LLMClient
@@ -48,12 +50,25 @@ def generate_application(listing_id: UUID, *, refresh_company: bool = False) -> 
         refresh=refresh_company,
     )
 
+    # Tailor the resume first, so its bullets can steer the cover letter away
+    # from restating them.
+    resume = tailor_resume(llm, listing=listing, profile=profile, brief=brief)
+    resume_tex = render_resume(resume, profile.candidate)
+
     letter = generate_cover_letter(
-        llm, listing=listing, profile=profile, voice=voice, samples=samples, brief=brief
+        llm,
+        listing=listing,
+        profile=profile,
+        voice=voice,
+        samples=samples,
+        brief=brief,
+        resume_points=resume_bullet_texts(resume),
     )
 
     application = gen.get_application_for_listing(candidate_id, listing_id) or Application(
         candidate_id=candidate_id, listing_id=listing_id
     )
     application.cover_letter = letter
+    application.resume_content = resume.model_dump(mode="json")
+    application.resume_tex = resume_tex
     return gen.upsert_application(application)
