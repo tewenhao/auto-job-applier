@@ -99,3 +99,12 @@ class GenerateRequest(BaseModel):
     listing_id: UUID
     steer: str | None = None
     max_pages: int = Field(default=1, ge=1, le=3)
+
+
+class Preferences(BaseModel):
+    # Standing résumé-generation guidance: what to prioritise on every resume.
+    resume_guidance: str | None = None
+
+
+class PreferencesUpdate(BaseModel):
+    resume_guidance: str = ""  # empty clears the standing guidance

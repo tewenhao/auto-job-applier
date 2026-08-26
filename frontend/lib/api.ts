@@ -76,6 +76,10 @@ export type ApplicationDetail = ApplicationSummary & {
   steer: string | null;
 };
 
+export type Preferences = {
+  resume_guidance: string | null;
+};
+
 async function request<T>(path: string, init?: RequestInit): Promise<T> {
   const res = await fetch(`${API_BASE}${path}`, {
     ...init,
@@ -132,4 +136,12 @@ export const api = {
     }),
 
   resumePdfUrl: (id: string) => `${API_BASE}/api/applications/${id}/resume.pdf`,
+
+  getPreferences: () => request<Preferences>("/api/preferences"),
+
+  updatePreferences: (resume_guidance: string) =>
+    request<Preferences>("/api/preferences", {
+      method: "PUT",
+      body: JSON.stringify({ resume_guidance }),
+    }),
 };

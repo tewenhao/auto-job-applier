@@ -20,11 +20,15 @@ from app.api.schemas import (
     ApproveRequest,
     GenerateRequest,
     ListingSummary,
+    Preferences,
+    PreferencesUpdate,
     RegenerateRequest,
 )
 from app.generation.models import Application, ApplicationStatus
 from app.generation.repository import GenerationRepository
+from app.generation.resume import RESUME_GUIDANCE_KEY
 from app.listings.repository import ListingRepository
+from app.profile.models import Preferences as ProfilePreferences
 from app.profile.repository import ProfileRepository
 
 app = FastAPI(title="auto-job-applier", version="0.1.0")
@@ -43,6 +47,34 @@ def _load(app_id: UUID, gen: GenerationRepository) -> Application:
     if application is None:
         raise HTTPException(status_code=404, detail="No application with that id")
     return application
+
+
+@app.get("/api/preferences", response_model=Preferences)
+def get_preferences(
+    profiles: ProfileRepository = Depends(get_profile_repo),
+) -> Preferences:
+    candidate = profiles.get_or_create_default_candidate()
+    assert candidate.id is not None
+    prefs = profiles.get_preferences(candidate.id)
+    guidance = prefs.extra.get(RESUME_GUIDANCE_KEY) if prefs else None
+    return Preferences(resume_guidance=guidance or None)
+
+
+@app.put("/api/preferences", response_model=Preferences)
+def update_preferences(
+    body: PreferencesUpdate,
+    profiles: ProfileRepository = Depends(get_profile_repo),
+) -> Preferences:
+    candidate = profiles.get_or_create_default_candidate()
+    assert candidate.id is not None
+    prefs = profiles.get_preferences(candidate.id) or ProfilePreferences(candidate_id=candidate.id)
+    text = body.resume_guidance.strip()
+    if text:
+        prefs.extra = {**prefs.extra, RESUME_GUIDANCE_KEY: text}
+    else:  # empty clears the standing guidance
+        prefs.extra = {k: v for k, v in prefs.extra.items() if k != RESUME_GUIDANCE_KEY}
+    saved = profiles.set_preferences(prefs)
+    return Preferences(resume_guidance=saved.extra.get(RESUME_GUIDANCE_KEY) or None)
 
 
 @app.get("/api/health")

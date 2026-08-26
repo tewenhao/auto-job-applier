@@ -17,7 +17,7 @@ from app.api.deps import get_gen_repo, get_listings_repo, get_profile_repo
 from app.api.main import app
 from app.generation.models import Application, ApplicationStatus
 from app.listings.models import Listing, ListingSource
-from app.profile.models import Candidate
+from app.profile.models import Candidate, Preferences
 
 CID = uuid4()
 
@@ -49,8 +49,18 @@ class FakeListingsRepo:
 
 
 class FakeProfileRepo:
+    def __init__(self) -> None:
+        self._prefs: Preferences | None = None
+
     def get_or_create_default_candidate(self) -> Candidate:
         return Candidate(id=CID, full_name="Tester")
+
+    def get_preferences(self, candidate_id):  # noqa: ANN001
+        return self._prefs
+
+    def set_preferences(self, prefs):  # noqa: ANN001
+        self._prefs = prefs
+        return prefs
 
 
 def _listing() -> Listing:
@@ -146,6 +156,20 @@ def test_list_listings_flags_existing_drafts() -> None:
     assert rows[str(with_draft.id)]["application_id"] == str(a.id)
     assert rows[str(without_draft.id)]["application_id"] is None
     assert rows[str(with_draft.id)]["company"] == "Acme"
+
+
+def test_preferences_round_trip() -> None:
+    client = _client(apps=[], listings=[])
+
+    assert client.get("/api/preferences").json()["resume_guidance"] is None
+
+    put = client.put("/api/preferences", json={"resume_guidance": "  Prioritise paid roles.  "})
+    assert put.json()["resume_guidance"] == "Prioritise paid roles."  # trimmed
+    assert client.get("/api/preferences").json()["resume_guidance"] == "Prioritise paid roles."
+
+    # empty clears
+    cleared = client.put("/api/preferences", json={"resume_guidance": ""})
+    assert cleared.json()["resume_guidance"] is None
 
 
 def test_generate_missing_listing_404() -> None:
