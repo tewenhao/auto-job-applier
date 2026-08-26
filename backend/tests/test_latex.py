@@ -235,8 +235,13 @@ def test_trim_reaches_bare_minimum_then_stops() -> None:
     assert trim_one_step(r2) is None  # 1 experience, no projects — bare minimum
 
 
-def test_compile_to_page_limit_without_toolchain_writes_tex(tmp_path: Path) -> None:
-    # No LaTeX toolchain in CI: the loop must not trim, and must still write .tex.
+def test_compile_to_page_limit_without_toolchain_writes_tex(tmp_path: Path, monkeypatch) -> None:  # type: ignore[no-untyped-def]
+    # Force the no-toolchain path (deterministic regardless of whether the machine
+    # running the tests has latexmk/pdflatex installed): it must write the .tex,
+    # never trim, and report an unknown page count.
+    import app.generation.latex as latex_mod
+
+    monkeypatch.setattr(latex_mod, "has_latex_toolchain", lambda: False)
     r = _resume_for_trim()
     tex_path = tmp_path / "resume.tex"
     result = compile_to_page_limit(r, Candidate(full_name="X"), tex_path)
