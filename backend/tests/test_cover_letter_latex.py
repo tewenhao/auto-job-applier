@@ -36,8 +36,10 @@ def test_renders_header_recipient_and_title() -> None:
     tex = render_cover_letter(body, _candidate(), _listing())
     assert tex.startswith("\\documentclass")
     assert "\\begin{document}" in tex and "\\end{document}" in tex
-    # accent-coloured surname
-    assert "{\\color{awesome}Tew}" in tex
+    # shares the resume's Charter font and small-caps header, with no colour
+    assert "\\usepackage{charter}" in tex
+    assert "\\scshape En Hao Tew" in tex
+    assert "color" not in tex
     # recipient + title from the listing
     assert "Citadel" in tex
     assert "Application for Quant Intern at Citadel" in tex
@@ -56,6 +58,6 @@ def test_escapes_specials_and_keeps_signoff_linebreak() -> None:
 def test_no_listing_and_single_name() -> None:
     cand = Candidate(id=CID, full_name="Madonna", email="m@x.com")
     tex = render_cover_letter("Dear team,\n\nHi.", cand, None)
-    # single-token name: no accent split, no title/recipient
-    assert "{\\Huge Madonna}" in tex
+    # no listing -> no title/recipient; name still in the shared header
+    assert "\\scshape Madonna" in tex
     assert "Application for" not in tex
