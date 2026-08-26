@@ -190,12 +190,18 @@ def tailor_resume(
         "Produce the tailored one-page resume now, including the ranking."
     )
 
+    # Generous ceiling: the tailored resume is a large structured payload (a
+    # ranking with a rationale for every experience/project, plus rewritten
+    # bullets and skills), and Opus 5 thinks by default with thinking counting
+    # against max_tokens. A low cap truncates the JSON mid-string — worse when
+    # steering makes the model reason and write more. The model stops at
+    # end_turn well before this; it's a ceiling, not a target.
     return llm.parse(
         task=Task.GENERATE,
         system=_SYSTEM,
         messages=[{"role": "user", "content": user}],
         output_format=TailoredResume,
-        max_tokens=8000,
+        max_tokens=16000,
     )
 
 

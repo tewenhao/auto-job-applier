@@ -10,6 +10,7 @@ from __future__ import annotations
 from typing import Any, TypeVar
 
 import anthropic
+import pydantic
 from pydantic import BaseModel
 
 from app.config import Settings, Task, get_settings
@@ -86,7 +87,19 @@ class LLMClient:
         if system is not None:
             params["system"] = system
 
-        response = self._client.messages.parse(**params)
+        try:
+            response = self._client.messages.parse(**params)
+        except pydantic.ValidationError as exc:
+            # A truncated response (model hit max_tokens, thinking included)
+            # surfaces as invalid/incomplete JSON. Turn the cryptic parser error
+            # into an actionable one rather than a 500 with a raw stack trace.
+            if any(e.get("type") == "json_invalid" for e in exc.errors()):
+                raise ValueError(
+                    f"The model's structured output was cut off before it was "
+                    f"valid JSON — it likely hit the {max_tokens}-token ceiling "
+                    f"(thinking counts against it). Try again, or raise max_tokens."
+                ) from exc
+            raise
         parsed = response.parsed_output
         if parsed is None:
             raise ValueError("Structured extraction returned no parsed output.")

@@ -121,6 +121,10 @@ def regenerate_application(
         )
     except KeyError as exc:
         raise HTTPException(status_code=404, detail="No application with that id") from exc
+    except ValueError as exc:
+        # e.g. the model's structured output was truncated — a clean, retryable
+        # message beats a 500 with a raw traceback.
+        raise HTTPException(status_code=502, detail=str(exc)) from exc
     return ApplicationDetail.build(saved, listings.get(saved.listing_id))
 
 
@@ -131,7 +135,10 @@ def generate(
 ) -> ApplicationDetail:
     if listings.get(body.listing_id) is None:
         raise HTTPException(status_code=404, detail="No listing with that id")
-    saved = service.generate_new(body.listing_id, steer=body.steer, max_pages=body.max_pages)
+    try:
+        saved = service.generate_new(body.listing_id, steer=body.steer, max_pages=body.max_pages)
+    except ValueError as exc:
+        raise HTTPException(status_code=502, detail=str(exc)) from exc
     return ApplicationDetail.build(saved, listings.get(saved.listing_id))
 
 
