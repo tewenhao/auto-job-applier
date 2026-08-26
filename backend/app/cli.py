@@ -132,7 +132,7 @@ def ingest(
         run_doc(path, SourceType.COVER_LETTER)
     if linkedin:
         typer.echo(f"Ingesting LinkedIn export: {linkedin} ...")
-        summary = ingestor.ingest_linkedin(linkedin, candidate_id=candidate_id)
+        summary = ingestor.ingest_linkedin(linkedin, candidate_id=candidate_id, dedup=not fresh)
         typer.secho(f"  -> {summary}", fg=typer.colors.GREEN)
     if github:
         if not settings.github_username:

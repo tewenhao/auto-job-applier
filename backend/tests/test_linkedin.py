@@ -73,16 +73,66 @@ def test_read_from_directory(tmp_path: Path) -> None:
     assert len(tables["skills"]) == 2
 
 
+class _FakeRepo:
+    """Records how LinkedIn experiences were written (upsert vs plain insert)."""
+
+    def __init__(self) -> None:
+        self.added: list[object] = []
+        self.upserted: list[object] = []
+
+    def add_source_document(self, doc):  # type: ignore[no-untyped-def]
+        doc.id = uuid4()
+        return doc
+
+    def get_candidate(self, candidate_id):  # type: ignore[no-untyped-def]
+        return None
+
+    def upsert_experience(self, exp):  # type: ignore[no-untyped-def]
+        self.upserted.append(exp)
+        return exp
+
+    def add_experience(self, exp):  # type: ignore[no-untyped-def]
+        self.added.append(exp)
+        return exp
+
+    def upsert_skill(self, skill):  # type: ignore[no-untyped-def]
+        return skill
+
+    def add_writing_sample(self, sample):  # type: ignore[no-untyped-def]
+        return sample
+
+
+def test_ingest_linkedin_respects_dedup_flag(tmp_path: Path) -> None:
+    from app.ingestion.pipeline import Ingestor
+
+    zip_path = _make_zip(tmp_path)
+
+    # 2 positions + 1 education = 3 experiences.
+    fresh = _FakeRepo()
+    Ingestor(fresh, llm=None).ingest_linkedin(zip_path, candidate_id=CID, dedup=False)  # type: ignore[arg-type]
+    assert len(fresh.added) == 3 and len(fresh.upserted) == 0  # plain-insert after --fresh
+
+    incremental = _FakeRepo()
+    Ingestor(incremental, llm=None).ingest_linkedin(zip_path, candidate_id=CID, dedup=True)  # type: ignore[arg-type]
+    assert len(incremental.upserted) == 3 and len(incremental.added) == 0
+
+
 def test_merge_dates_prefers_linkedin() -> None:
     # master-doc entry defaulted to Jan 1; LinkedIn has the real month.
     members = [
         Experience(
-            candidate_id=CID, kind=ExperienceKind.WORK, source="master_doc",
-            start_date=date(2026, 1, 1), end_date=date(2026, 1, 1),
+            candidate_id=CID,
+            kind=ExperienceKind.WORK,
+            source="master_doc",
+            start_date=date(2026, 1, 1),
+            end_date=date(2026, 1, 1),
         ),
         Experience(
-            candidate_id=CID, kind=ExperienceKind.WORK, source="linkedin",
-            start_date=date(2026, 7, 1), end_date=date(2026, 9, 1),
+            candidate_id=CID,
+            kind=ExperienceKind.WORK,
+            source="linkedin",
+            start_date=date(2026, 7, 1),
+            end_date=date(2026, 9, 1),
         ),
     ]
     start, end, _ = _merge_dates(members)
