@@ -200,7 +200,10 @@ def resume_pdf(
         raise HTTPException(
             status_code=404, detail="No PDF (no LaTeX toolchain, or resume not generated)"
         )
-    return FileResponse(pdf, media_type="application/pdf", filename="resume.pdf")
+    # inline so the dashboard can embed it in an <iframe> (default would download)
+    return FileResponse(
+        pdf, media_type="application/pdf", filename="resume.pdf", content_disposition_type="inline"
+    )
 
 
 @app.get("/api/applications/{app_id}/cover_letter.pdf")
@@ -215,4 +218,9 @@ def cover_letter_pdf(
             status_code=404,
             detail="No PDF (no LaTeX toolchain, or no cover letter generated)",
         )
-    return FileResponse(pdf, media_type="application/pdf", filename="cover_letter.pdf")
+    return FileResponse(
+        pdf,
+        media_type="application/pdf",
+        filename="cover_letter.pdf",
+        content_disposition_type="inline",
+    )

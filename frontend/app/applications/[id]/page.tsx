@@ -13,6 +13,9 @@ export default function ApplicationPage({ params }: { params: Promise<{ id: stri
   const [steer, setSteer] = useState("");
   const [busy, setBusy] = useState<null | "regenerate" | "approve" | "submit">(null);
   const [editing, setEditing] = useState(false);
+  // Bumped whenever the PDFs may have changed, to bust the iframe's cache (the
+  // URL is stable per application, so the file changes underneath it).
+  const [pdfVersion, setPdfVersion] = useState(0);
 
   useEffect(() => {
     api
@@ -31,6 +34,7 @@ export default function ApplicationPage({ params }: { params: Promise<{ id: stri
       const updated = await fn();
       setApp(updated);
       setSteer(updated.steer ?? "");
+      setPdfVersion((v) => v + 1);
     } catch (e) {
       setError(String((e as Error).message ?? e));
     } finally {
@@ -149,17 +153,18 @@ export default function ApplicationPage({ params }: { params: Promise<{ id: stri
             onSaved={(updated) => {
               setApp(updated);
               setEditing(false);
+              setPdfVersion((v) => v + 1);
             }}
             onCancel={() => setEditing(false)}
           />
         ) : (
           <>
             {app.resume_pdf_available ? (
-              <p style={{ marginTop: 0 }}>
-                <a href={api.resumePdfUrl(app.id)} target="_blank" rel="noreferrer">
-                  Open compiled PDF ↗
-                </a>
-              </p>
+              <PdfPreview
+                url={api.resumePdfUrl(app.id)}
+                version={pdfVersion}
+                label="resume"
+              />
             ) : (
               <p className="muted" style={{ marginTop: 0 }}>
                 No compiled PDF (no LaTeX toolchain, or not yet generated). The tailored content is
@@ -235,11 +240,11 @@ export default function ApplicationPage({ params }: { params: Promise<{ id: stri
       <h2>Cover letter</h2>
       <section className="panel">
         {app.cover_letter_pdf_available && (
-          <p style={{ marginTop: 0 }}>
-            <a href={api.coverLetterPdfUrl(app.id)} target="_blank" rel="noreferrer">
-              Open compiled PDF ↗
-            </a>
-          </p>
+          <PdfPreview
+            url={api.coverLetterPdfUrl(app.id)}
+            version={pdfVersion}
+            label="cover letter"
+          />
         )}
         {app.cover_letter ? (
           <pre className="cover-letter">{app.cover_letter}</pre>
@@ -247,6 +252,25 @@ export default function ApplicationPage({ params }: { params: Promise<{ id: stri
           <p className="muted">No cover letter generated.</p>
         )}
       </section>
+    </div>
+  );
+}
+
+function PdfPreview({ url, version, label }: { url: string; version: number; label: string }) {
+  const [open, setOpen] = useState(true);
+  // ?v= busts the browser cache when the PDF is re-rendered under the same URL.
+  const src = `${url}?v=${version}`;
+  return (
+    <div className="pdf-preview">
+      <div className="pdf-preview-bar">
+        <button className="mini" onClick={() => setOpen((o) => !o)}>
+          {open ? "Hide preview" : "Show preview"}
+        </button>
+        <a href={src} target="_blank" rel="noreferrer">
+          Open {label} ↗
+        </a>
+      </div>
+      {open && <iframe title={`${label} PDF`} src={src} className="pdf-frame" />}
     </div>
   );
 }

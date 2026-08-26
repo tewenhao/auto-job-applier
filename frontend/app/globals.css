@@ -510,6 +510,26 @@ button:disabled {
   color: var(--muted);
 }
 
+/* ---- inline PDF preview ---- */
+.pdf-preview {
+  margin: 0 0 8px;
+}
+
+.pdf-preview-bar {
+  display: flex;
+  align-items: center;
+  gap: 14px;
+  margin-bottom: 10px;
+}
+
+.pdf-frame {
+  width: 100%;
+  height: min(80vh, 900px);
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  background: #fff; /* PDFs render on white regardless of theme */
+}
+
 /* ---- resume editor ---- */
 button.mini {
   font-size: 0.78rem;
