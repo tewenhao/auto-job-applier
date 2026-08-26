@@ -3,6 +3,7 @@
 import Link from "next/link";
 import { use, useEffect, useState } from "react";
 import { api, type ApplicationDetail, type RankedItem } from "@/lib/api";
+import ResumeEditor from "./ResumeEditor";
 
 export default function ApplicationPage({ params }: { params: Promise<{ id: string }> }) {
   const { id } = use(params);
@@ -11,6 +12,7 @@ export default function ApplicationPage({ params }: { params: Promise<{ id: stri
   const [error, setError] = useState<string | null>(null);
   const [steer, setSteer] = useState("");
   const [busy, setBusy] = useState<null | "regenerate" | "approve" | "submit">(null);
+  const [editing, setEditing] = useState(false);
 
   useEffect(() => {
     api
@@ -131,22 +133,41 @@ export default function ApplicationPage({ params }: { params: Promise<{ id: stri
       )}
 
       {/* ---- resume artifacts ---- */}
-      <h2>Resume</h2>
-      <section className="panel">
-        {app.resume_pdf_available ? (
-          <p style={{ marginTop: 0 }}>
-            <a href={api.resumePdfUrl(app.id)} target="_blank" rel="noreferrer">
-              Open compiled PDF ↗
-            </a>
-          </p>
-        ) : (
-          <p className="muted" style={{ marginTop: 0 }}>
-            No compiled PDF (no LaTeX toolchain, or not yet generated). The tailored content is
-            shown below.
-          </p>
+      <div className="detail-head" style={{ marginTop: 28, marginBottom: 8 }}>
+        <h2 style={{ margin: 0 }}>Resume</h2>
+        {resume && !editing && (
+          <button className="mini" disabled={anyBusy} onClick={() => setEditing(true)}>
+            Edit
+          </button>
         )}
+      </div>
+      <section className="panel">
+        {editing && resume ? (
+          <ResumeEditor
+            appId={app.id}
+            resume={resume}
+            onSaved={(updated) => {
+              setApp(updated);
+              setEditing(false);
+            }}
+            onCancel={() => setEditing(false)}
+          />
+        ) : (
+          <>
+            {app.resume_pdf_available ? (
+              <p style={{ marginTop: 0 }}>
+                <a href={api.resumePdfUrl(app.id)} target="_blank" rel="noreferrer">
+                  Open compiled PDF ↗
+                </a>
+              </p>
+            ) : (
+              <p className="muted" style={{ marginTop: 0 }}>
+                No compiled PDF (no LaTeX toolchain, or not yet generated). The tailored content is
+                shown below.
+              </p>
+            )}
 
-        {resume ? (
+            {resume ? (
           <div className="resume-body">
             {resume.education.length > 0 && (
               <ResumeSection title="Education">
@@ -202,9 +223,11 @@ export default function ApplicationPage({ params }: { params: Promise<{ id: stri
                 </dl>
               </ResumeSection>
             )}
-          </div>
-        ) : (
-          <p className="muted">No tailored resume content on this application yet.</p>
+              </div>
+            ) : (
+              <p className="muted">No tailored resume content on this application yet.</p>
+            )}
+          </>
         )}
       </section>
 

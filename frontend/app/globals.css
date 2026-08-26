@@ -510,6 +510,111 @@ button:disabled {
   color: var(--muted);
 }
 
+/* ---- resume editor ---- */
+button.mini {
+  font-size: 0.78rem;
+  font-weight: 600;
+  padding: 4px 9px;
+  border-radius: 6px;
+}
+
+button.mini.danger:hover:not(:disabled) {
+  border-color: var(--danger);
+  color: var(--danger);
+}
+
+.editor-section + .editor-section,
+.resume-editor > .editor-field {
+  margin-top: 22px;
+}
+
+.editor-section-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  margin-bottom: 10px;
+}
+
+.editor-section-head .resume-section-title {
+  margin: 0;
+}
+
+.editor-entry {
+  position: relative;
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  padding: 14px;
+  margin-bottom: 12px;
+  background: var(--panel-2);
+}
+
+.editor-entry-toolbar {
+  position: absolute;
+  top: 10px;
+  right: 10px;
+  display: flex;
+  gap: 4px;
+}
+
+.editor-fields {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(180px, 1fr));
+  gap: 10px;
+  margin-right: 96px; /* clear the toolbar */
+}
+
+.editor-field {
+  display: flex;
+  flex-direction: column;
+  gap: 3px;
+  font-size: 0.8rem;
+  color: var(--muted);
+}
+
+.editor-field input {
+  font: inherit;
+  font-size: 0.9rem;
+  color: var(--text);
+  padding: 7px 9px;
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  background: var(--panel);
+}
+
+.editor-field input:focus,
+.editor-bullet textarea:focus {
+  outline: none;
+  border-color: var(--accent);
+}
+
+.editor-bullets {
+  margin-top: 12px;
+}
+
+.editor-bullet {
+  display: flex;
+  gap: 6px;
+  margin-bottom: 6px;
+}
+
+.editor-bullet textarea {
+  flex: 1;
+  resize: vertical;
+  font: inherit;
+  font-size: 0.88rem;
+  padding: 7px 9px;
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  background: var(--panel);
+  color: var(--text);
+}
+
+.editor-bullet-toolbar {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+
 .busy {
   color: var(--muted);
   font-size: 0.9rem;

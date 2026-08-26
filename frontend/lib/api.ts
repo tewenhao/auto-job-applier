@@ -135,6 +135,12 @@ export const api = {
       }),
     }),
 
+  saveResume: (id: string, resume: TailoredResume, max_pages = 1) =>
+    request<ApplicationDetail>(`/api/applications/${id}/resume`, {
+      method: "PUT",
+      body: JSON.stringify({ resume, max_pages }),
+    }),
+
   resumePdfUrl: (id: string) => `${API_BASE}/api/applications/${id}/resume.pdf`,
 
   getPreferences: () => request<Preferences>("/api/preferences"),

@@ -46,6 +46,19 @@ def _compile_and_store(app: Application, *, max_pages: int) -> Application:
     return GenerationRepository().upsert_application(app)
 
 
+def save_resume(application_id: UUID, resume: TailoredResume, *, max_pages: int) -> Application:
+    """Persist a hand-edited resume and re-render it — no LLM involved.
+
+    This is the manual-edit counterpart to ``regenerate``: the user is the final
+    editor, and we deterministically render + compile exactly what they saved
+    (still trimming only if it overflows ``max_pages``)."""
+    existing = GenerationRepository().get_application(application_id)
+    if existing is None:
+        raise KeyError(application_id)
+    existing.resume_content = resume.model_dump(mode="json")
+    return _compile_and_store(existing, max_pages=max_pages)
+
+
 def regenerate(
     application_id: UUID, *, steer: str | None, refresh_company: bool, max_pages: int
 ) -> Application:

@@ -158,6 +158,51 @@ def test_list_listings_flags_existing_drafts() -> None:
     assert rows[str(with_draft.id)]["company"] == "Acme"
 
 
+def test_save_resume_persists_edit(monkeypatch) -> None:  # noqa: ANN001
+    from app.api import service
+    from app.generation.resume import ExperienceEntry, TailoredResume
+
+    listing = _listing()
+    a = _application(listing.id)
+    edited = TailoredResume(
+        experience=[ExperienceEntry(title="Edited role", bullets=["Hand-written bullet"])],
+        skills=[],
+    )
+
+    def fake_save(app_id, resume, *, max_pages):  # noqa: ANN001, ANN202
+        assert app_id == a.id
+        a.resume_content = resume.model_dump(mode="json")
+        return a
+
+    monkeypatch.setattr(service, "save_resume", fake_save)
+    client = _client(apps=[a], listings=[listing])
+
+    resp = client.put(
+        f"/api/applications/{a.id}/resume",
+        json={"resume": edited.model_dump(mode="json"), "max_pages": 1},
+    )
+    assert resp.status_code == 200
+    body = resp.json()
+    assert body["resume"]["experience"][0]["title"] == "Edited role"
+    assert body["resume"]["experience"][0]["bullets"] == ["Hand-written bullet"]
+
+
+def test_save_resume_404(monkeypatch) -> None:  # noqa: ANN001
+    from app.api import service
+    from app.generation.resume import TailoredResume
+
+    def fake_save(app_id, resume, *, max_pages):  # noqa: ANN001, ANN202
+        raise KeyError(app_id)
+
+    monkeypatch.setattr(service, "save_resume", fake_save)
+    client = _client(apps=[], listings=[])
+    resp = client.put(
+        f"/api/applications/{uuid4()}/resume",
+        json={"resume": TailoredResume().model_dump(mode="json")},
+    )
+    assert resp.status_code == 404
+
+
 def test_preferences_round_trip() -> None:
     client = _client(apps=[], listings=[])
 

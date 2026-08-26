@@ -95,6 +95,11 @@ class ApproveRequest(BaseModel):
     submitted: bool = False
 
 
+class ResumeUpdate(BaseModel):
+    resume: TailoredResume  # the hand-edited resume to persist and re-render
+    max_pages: int = Field(default=1, ge=1, le=3)
+
+
 class GenerateRequest(BaseModel):
     listing_id: UUID
     steer: str | None = None

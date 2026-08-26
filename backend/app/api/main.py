@@ -23,6 +23,7 @@ from app.api.schemas import (
     Preferences,
     PreferencesUpdate,
     RegenerateRequest,
+    ResumeUpdate,
 )
 from app.generation.models import Application, ApplicationStatus
 from app.generation.repository import GenerationRepository
@@ -157,6 +158,20 @@ def regenerate_application(
         # e.g. the model's structured output was truncated — a clean, retryable
         # message beats a 500 with a raw traceback.
         raise HTTPException(status_code=502, detail=str(exc)) from exc
+    return ApplicationDetail.build(saved, listings.get(saved.listing_id))
+
+
+@app.put("/api/applications/{app_id}/resume", response_model=ApplicationDetail)
+def save_resume(
+    app_id: UUID,
+    body: ResumeUpdate,
+    listings: ListingRepository = Depends(get_listings_repo),
+) -> ApplicationDetail:
+    # Deterministic: persist the hand-edited resume and re-render (no LLM).
+    try:
+        saved = service.save_resume(app_id, body.resume, max_pages=body.max_pages)
+    except KeyError as exc:
+        raise HTTPException(status_code=404, detail="No application with that id") from exc
     return ApplicationDetail.build(saved, listings.get(saved.listing_id))
 
 
