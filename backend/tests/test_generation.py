@@ -4,7 +4,12 @@ from __future__ import annotations
 
 from uuid import uuid4
 
-from app.generation.cover_letter import _handling_notes, _samples_block, _voice_block
+from app.generation.cover_letter import (
+    _handling_notes,
+    _samples_block,
+    _strip_ai_dashes,
+    _voice_block,
+)
 from app.generation.models import Application, ApplicationStatus, CompanyBrief
 from app.profile.models import (
     Candidate,
@@ -16,6 +21,20 @@ from app.profile.models import (
 )
 
 CID = uuid4()
+
+
+def test_strip_ai_dashes_removes_em_and_en_dashes() -> None:
+    assert _strip_ai_dashes("I built X — it mattered.") == "I built X, it mattered."
+    assert _strip_ai_dashes("a tight—join") == "a tight, join"
+    assert _strip_ai_dashes("one – two – three") == "one, two, three"
+    # no dash: untouched
+    assert _strip_ai_dashes("plain, clean text.") == "plain, clean text."
+
+
+def test_strip_ai_dashes_preserves_signoff_and_paragraphs() -> None:
+    # the sign-off comma must survive, and paragraph breaks must not collapse
+    assert _strip_ai_dashes("Best wishes,\nEn Hao Tew") == "Best wishes,\nEn Hao Tew"
+    assert _strip_ai_dashes("Para one —\n\nPara two") == "Para one,\n\nPara two"
 
 
 def test_application_round_trip() -> None:

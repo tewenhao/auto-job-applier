@@ -4,6 +4,8 @@ rules, and deliberately humanified (not LLM-sounding)."""
 
 from __future__ import annotations
 
+import re
+
 from app.config import Task
 from app.generation.models import CompanyBrief
 from app.listings.models import Listing
@@ -13,13 +15,49 @@ from app.profile.models import MasterProfile, VoiceProfile, WritingSample
 
 _MAX_SAMPLE_CHARS = 2500
 _ANTI_LLM = (
-    "Write like a real person, not an AI. Avoid the usual tells: no 'I am writing "
-    "to express my keen interest', no 'In today's fast-paced world', no hollow "
-    "superlatives, no throat-clearing wind-ups, no restating the job title back at "
-    "them, and no limp sign-offs like 'Thank you for reading' or 'Thank you for "
-    "your consideration'. Vary sentence length. It should read as though the "
-    "candidate wrote it in a focused hour."
+    "Write like one specific human being, not an AI assistant. Letters that read as "
+    "machine-written get discarded, so avoid EVERY common tell:\n"
+    "- PUNCTUATION: never use an em dash or en dash (— or –) anywhere. Break the "
+    "sentence with a full stop, or join with a comma, a colon, parentheses, or the "
+    "word 'and'. Don't use semicolons to stitch clauses together for effect.\n"
+    "- BANNED WORDS (they read as AI): delve, leverage, utilise, utilize, harness, "
+    "showcase, underscore, spearhead, foster, cultivate, empower, unlock, elevate, "
+    "resonate, align, alignment, tapestry, realm, landscape, ecosystem, journey, "
+    "testament, pivotal, robust, seamless, holistic, synergy, myriad, plethora, "
+    "meticulous, diligent, versatile, invaluable, profound, vibrant, dynamic, "
+    "innovative, cutting-edge, passionate, thrilled, excited, eager, keen. Prefer "
+    "the plain word: 'use', not 'leverage'; 'build', not 'architect'; 'show', not "
+    "'showcase'.\n"
+    "- BANNED PHRASES: 'I am writing to express my interest', 'I am excited/thrilled "
+    "to apply', 'I believe I would be a great fit', 'this role aligns perfectly', "
+    "'I am particularly drawn to', 'in today's fast-paced world', 'at the "
+    "forefront', 'a proven track record', 'a wealth of experience', 'hit the ground "
+    "running', 'think outside the box', 'commitment to excellence', and any "
+    "'thank you for your consideration / for reading' sign-off.\n"
+    "- STRUCTURE: no rule-of-three lists (three parallel items strung together for "
+    "rhythm), no 'not just X, but Y' constructions, no throat-clearing wind-ups, no "
+    "restating the job title back at them, no hollow superlatives. Don't open "
+    "several sentences with the same participial shape ('Having...', 'Building "
+    "on...'). Vary sentence length; let some run short and blunt. Contractions are "
+    "fine and human.\n"
+    "- Before you finish, reread and cut any sentence that could sit unchanged in "
+    "someone else's letter. It should read as though this candidate wrote it in a "
+    "focused hour."
 )
+
+# Em/en dashes are a top AI tell. The prompt forbids them; this guarantees it,
+# rewriting any that slip through into human punctuation.
+_DASH = re.compile(r"[ \t]*[—–][ \t]*")
+
+
+def _strip_ai_dashes(text: str) -> str:
+    """Replace em/en dashes with a comma (the safest universal substitute) and
+    tidy the spacing/commas that produces."""
+    text = _DASH.sub(", ", text)
+    text = re.sub(r"[ \t]+,", ",", text)  # " ," -> ","
+    text = re.sub(r",\s*,+", ",", text)  # ",," -> ","
+    text = re.sub(r"[ \t]+\n", "\n", text)  # trailing spaces before a newline
+    return text
 
 # What a cover letter is FOR — the resume already carries the facts. This is the
 # guidance that stops the letter from becoming a prose resume.
@@ -149,9 +187,10 @@ def generate_cover_letter(
     # Generous ceiling: Opus 5 thinks by default and thinking counts against
     # max_tokens, so a low cap truncates the letter. The model stops at end_turn
     # well before this; it's a ceiling, not a target.
-    return llm.complete(
+    letter = llm.complete(
         task=Task.GENERATE,
         system=system,
         messages=[{"role": "user", "content": user}],
         max_tokens=8000,
     )
+    return _strip_ai_dashes(letter.strip())
