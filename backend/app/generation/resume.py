@@ -251,6 +251,21 @@ def trim_one_step(
     return None
 
 
+RESUME_GUIDANCE_KEY = "resume_guidance"
+
+
+def compose_steer(standing: str | None, steer: str | None) -> str | None:
+    """Combine the candidate's standing generation guidance (a persisted
+    preference applied to every resume) with a per-application ``steer`` (a
+    one-off override that takes precedence). Either may be absent."""
+    parts: list[str] = []
+    if standing and standing.strip():
+        parts.append(f"Standing preferences (apply to every resume): {standing.strip()}")
+    if steer and steer.strip():
+        parts.append(f"For THIS application (takes precedence if it conflicts): {steer.strip()}")
+    return "\n".join(parts) or None
+
+
 def resume_bullet_texts(resume: TailoredResume) -> list[str]:
     """Flatten every bullet (bold markers stripped) — used to tell the cover
     letter not to restate what the resume already says."""

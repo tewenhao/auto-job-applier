@@ -9,7 +9,12 @@ from app.generation.cover_letter import generate_cover_letter
 from app.generation.latex import render_resume
 from app.generation.models import Application
 from app.generation.repository import GenerationRepository
-from app.generation.resume import resume_bullet_texts, tailor_resume
+from app.generation.resume import (
+    RESUME_GUIDANCE_KEY,
+    compose_steer,
+    resume_bullet_texts,
+    tailor_resume,
+)
 from app.listings.models import normalize_company
 from app.listings.repository import ListingRepository
 from app.llm import LLMClient
@@ -44,6 +49,11 @@ def generate_application(
     voice = profiles.get_voice_profile(candidate_id)
     samples = profiles.list_writing_samples(candidate_id)
 
+    # Standing generation guidance (a persisted preference) + this call's steer.
+    prefs = profiles.get_preferences(candidate_id)
+    standing = prefs.extra.get(RESUME_GUIDANCE_KEY) if prefs else None
+    effective_steer = compose_steer(standing, steer)
+
     brief = research_company(
         llm,
         gen,
@@ -58,7 +68,9 @@ def generate_application(
 
     # Tailor the resume first, so its bullets can steer the cover letter away
     # from restating them.
-    resume = tailor_resume(llm, listing=listing, profile=profile, brief=brief, steer=steer)
+    resume = tailor_resume(
+        llm, listing=listing, profile=profile, brief=brief, steer=effective_steer
+    )
     resume_tex = render_resume(resume, profile.candidate)
 
     letter = generate_cover_letter(

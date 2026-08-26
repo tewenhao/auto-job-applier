@@ -128,6 +128,20 @@ def test_ranked_item_score_bounds() -> None:
         RankedItem(kind="experience", label="x", score=150, included=True, rationale="y")
 
 
+def test_compose_steer_combines_standing_and_per_call() -> None:
+    from app.generation.resume import compose_steer
+
+    assert compose_steer(None, None) is None
+    assert compose_steer("  ", "") is None
+    assert compose_steer("prioritise real roles", None) == (
+        "Standing preferences (apply to every resume): prioritise real roles"
+    )
+    both = compose_steer("prioritise real roles", "keep the RSAF paper")
+    assert both is not None
+    assert "Standing preferences" in both and "For THIS application" in both
+    assert both.index("Standing") < both.index("For THIS")  # standing first, per-call after
+
+
 def test_empty_sections_are_dropped() -> None:
     tex = render_resume(TailoredResume(), Candidate(full_name="X"))
     assert r"\section{Education}" not in tex

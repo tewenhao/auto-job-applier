@@ -377,6 +377,58 @@ def preferences_set(
             setattr(prefs, field, value)
 
     _print_preferences(repo.set_preferences(prefs))
+
+
+@prefs_app.command("set-guidance")
+def preferences_set_guidance(text: str) -> None:
+    """Set standing résumé-generation guidance — what to prioritise on every resume.
+
+    Free text, applied to every `ajp generate` as a standing steer (a per-listing
+    `--steer` still takes precedence). Examples:
+      "Prioritise substantial paid roles and published work over side projects."
+      "Lead with ML/quant relevance; keep the RSAF paper; drop toy projects first."
+    """
+    from app.generation.resume import RESUME_GUIDANCE_KEY
+    from app.profile.models import Preferences
+    from app.profile.repository import ProfileRepository
+
+    repo = ProfileRepository()
+    candidate = repo.get_or_create_default_candidate()
+    assert candidate.id is not None
+    prefs = repo.get_preferences(candidate.id) or Preferences(candidate_id=candidate.id)
+    prefs.extra = {**prefs.extra, RESUME_GUIDANCE_KEY: text.strip()}
+    repo.set_preferences(prefs)
+    typer.secho("Saved résumé-generation guidance.", fg=typer.colors.GREEN)
+    typer.echo(f"  {text.strip()}")
+
+
+@prefs_app.command("guidance")
+def preferences_guidance() -> None:
+    """Show the standing résumé-generation guidance (if set)."""
+    from app.generation.resume import RESUME_GUIDANCE_KEY
+    from app.profile.repository import ProfileRepository
+
+    candidate = ProfileRepository().get_or_create_default_candidate()
+    assert candidate.id is not None
+    prefs = ProfileRepository().get_preferences(candidate.id)
+    guidance = prefs.extra.get(RESUME_GUIDANCE_KEY) if prefs else None
+    typer.echo(guidance or "(no standing résumé-generation guidance set)")
+
+
+@prefs_app.command("clear-guidance")
+def preferences_clear_guidance() -> None:
+    """Remove the standing résumé-generation guidance."""
+    from app.generation.resume import RESUME_GUIDANCE_KEY
+    from app.profile.repository import ProfileRepository
+
+    repo = ProfileRepository()
+    candidate = repo.get_or_create_default_candidate()
+    assert candidate.id is not None
+    prefs = repo.get_preferences(candidate.id)
+    if prefs and RESUME_GUIDANCE_KEY in prefs.extra:
+        prefs.extra = {k: v for k, v in prefs.extra.items() if k != RESUME_GUIDANCE_KEY}
+        repo.set_preferences(prefs)
+    typer.secho("Cleared résumé-generation guidance.", fg=typer.colors.YELLOW)
     typer.secho("Saved.", fg=typer.colors.GREEN)
 
 
