@@ -1,0 +1,34 @@
+# project specific
+candidate-inputs/
+
+# --- Secrets / local config ---
+.env
+.env.*
+!.env.example
+
+# --- Python ---
+__pycache__/
+*.py[cod]
+*.egg-info/
+.venv/
+venv/
+.mypy_cache/
+.ruff_cache/
+.pytest_cache/
+build/
+dist/
+# uv.lock is committed on purpose (reproducible installs for a shared repo).
+
+# --- Node / frontend (Module 4) ---
+node_modules/
+.next/
+frontend/.env*
+
+# --- Generated application outputs ---
+out/
+applications/
+
+# --- OS / editor ---
+.DS_Store
+.idea/
+.vscode/

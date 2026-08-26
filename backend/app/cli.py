@@ -1,0 +1,868 @@
+"""Command-line entrypoint for the candidate-profile module.
+
+This CLI is the interface for Module 1 until the dashboard (Module 4) arrives.
+Phase 0 ships the skeleton plus a working ``check`` command; the ingest /
+interview / voice / profile commands are stubs filled in over later phases.
+"""
+
+from __future__ import annotations
+
+import typer
+
+app = typer.Typer(
+    help="auto-job-applier — candidate profile CLI (Module 1).",
+    no_args_is_help=True,
+    add_completion=False,
+)
+
+voice_app = typer.Typer(help="Voice-profile tools.", no_args_is_help=True)
+profile_app = typer.Typer(help="Inspect and edit the master profile.", no_args_is_help=True)
+prefs_app = typer.Typer(help="Job-search preferences.", no_args_is_help=True)
+listings_app = typer.Typer(help="Ingest, score, and review job listings.", no_args_is_help=True)
+application_app = typer.Typer(help="Review generated applications.", no_args_is_help=True)
+app.add_typer(voice_app, name="voice")
+app.add_typer(profile_app, name="profile")
+app.add_typer(prefs_app, name="preferences")
+app.add_typer(listings_app, name="listings")
+app.add_typer(application_app, name="application")
+
+
+def _split(value: str | None) -> list[str] | None:
+    """Parse a comma-separated CLI option into a list (None if not provided)."""
+    if value is None:
+        return None
+    return [v.strip() for v in value.split(",") if v.strip()]
+
+
+def _slug(text: str) -> str:
+    """A filesystem-friendly, human-readable slug (e.g. 'Jane Street' -> 'jane-street')."""
+    import re
+
+    slug = re.sub(r"[^a-z0-9]+", "-", text.lower()).strip("-")
+    return slug or "application"
+
+
+@app.command()
+def check() -> None:
+    """Validate that configuration loads and report which inputs are wired up.
+
+    Never prints secret values — only whether each is present.
+    """
+    from app.config import get_settings
+
+    try:
+        settings = get_settings()
+    except Exception as exc:  # noqa: BLE001 - surface config errors plainly to the user
+        typer.secho(f"Configuration error: {exc}", fg=typer.colors.RED)
+        raise typer.Exit(code=1) from exc
+
+    def status(present: bool) -> str:
+        return "configured" if present else "missing"
+
+    typer.echo("Configuration loaded.")
+    typer.echo(f"  Anthropic API key : {status(bool(settings.anthropic_api_key))}")
+    typer.echo(f"  Interview model   : {settings.model_interview}")
+    typer.echo(f"  Parse model       : {settings.model_parse}")
+    typer.echo(f"  Supabase URL      : {status(bool(settings.supabase_url))}")
+    typer.echo(f"  Supabase key      : {status(bool(settings.supabase_key))}")
+    typer.echo(f"  GitHub token      : {status(bool(settings.github_token))}")
+    typer.echo(f"  GitHub username   : {settings.github_username or 'missing'}")
+
+
+@app.command()
+def ingest(
+    resume: str | None = typer.Option(
+        None, help="Resume file, or a directory of resume versions (PDF/DOCX/TXT/MD)."
+    ),
+    master_doc: str | None = typer.Option(
+        None, "--master-doc", help="Master document file, or a directory of them."
+    ),
+    essay: list[str] = typer.Option(  # noqa: B008 - typer option factory
+        [], "--essay", help="Essay file or directory (repeatable)."
+    ),
+    cover_letter: list[str] = typer.Option(  # noqa: B008 - typer option factory
+        [], "--cover-letter", help="Cover-letter file or directory (repeatable)."
+    ),
+    github: bool = typer.Option(
+        False, "--github", help="Pull GitHub metadata (uses GITHUB_USERNAME/TOKEN)."
+    ),
+    fresh: bool = typer.Option(
+        False,
+        "--fresh",
+        help="Clear this candidate's source docs, experiences, skills, and writing "
+        "samples first, for a clean rebuild. (GitHub + contact are left in place.)",
+    ),
+) -> None:
+    """Parse resume / master-doc / essays / GitHub into the profile.
+
+    Each raw input is retained verbatim in ``source_documents``. Resume and
+    master-doc are structurally extracted into experiences + skills; essays and
+    cover letters are kept as writing samples for voice.
+    """
+    from app.config import get_settings
+    from app.ingestion import Ingestor
+    from app.ingestion.documents import iter_documents
+    from app.llm import LLMClient
+    from app.profile.models import SourceType
+    from app.profile.repository import ProfileRepository
+
+    if not any([resume, master_doc, essay, cover_letter, github, fresh]):
+        typer.secho(
+            "Nothing to ingest — pass at least one input (or --fresh). See --help.",
+            fg=typer.colors.YELLOW,
+        )
+        raise typer.Exit(code=1)
+
+    settings = get_settings()
+    repo = ProfileRepository()
+    ingestor = Ingestor(repo, LLMClient(settings))
+    candidate = repo.get_or_create_default_candidate()
+    assert candidate.id is not None  # a persisted candidate always has an id
+    candidate_id = candidate.id
+
+    if fresh:
+        typer.secho(
+            "--fresh: clearing source docs, experiences, skills, writing samples ...",
+            fg=typer.colors.YELLOW,
+        )
+        repo.clear_experiences(candidate_id)
+        repo.clear_skills(candidate_id)
+        repo.clear_writing_samples(candidate_id)
+        repo.clear_source_documents(candidate_id)
+
+    def run_doc(path: str, source_type: SourceType) -> None:
+        files = iter_documents(path)
+        if not files:
+            typer.secho(f"  no supported documents found in {path}", fg=typer.colors.YELLOW)
+            return
+        for f in files:
+            typer.echo(f"Ingesting {source_type.value}: {f} ...")
+            # After --fresh the tables are empty, so plain-insert (no natural-key
+            # dedup) to avoid collapsing distinct entries; consolidate merges later.
+            summary = ingestor.ingest_document(
+                f, source_type, candidate_id=candidate_id, dedup=not fresh
+            )
+            typer.secho(f"  -> {summary}", fg=typer.colors.GREEN)
+
+    if resume:
+        run_doc(resume, SourceType.RESUME)
+    if master_doc:
+        run_doc(master_doc, SourceType.MASTER_DOC)
+    for path in essay:
+        run_doc(path, SourceType.ESSAY)
+    for path in cover_letter:
+        run_doc(path, SourceType.COVER_LETTER)
+    if github:
+        if not settings.github_username:
+            typer.secho("GITHUB_USERNAME is not set in .env.", fg=typer.colors.RED)
+            raise typer.Exit(code=1)
+        typer.echo(f"Ingesting GitHub: @{settings.github_username} ...")
+        summary = ingestor.ingest_github(
+            settings.github_username, settings.github_token or None, candidate_id=candidate_id
+        )
+        typer.secho(f"  -> {summary}", fg=typer.colors.GREEN)
+
+    typer.secho("Ingestion complete.", fg=typer.colors.GREEN, bold=True)
+
+
+@app.command()
+def consolidate(
+    experiences: bool = typer.Option(True, help="Cluster + merge duplicate experiences."),
+    skills: bool = typer.Option(True, help="De-duplicate and re-categorize skills."),
+) -> None:
+    """Semantically merge duplicate experiences and clean up skills.
+
+    Operates on data already in the profile (does not re-read source documents).
+    """
+    from app.ingestion.consolidate import consolidate_experiences, consolidate_skills
+    from app.llm import LLMClient
+    from app.profile.repository import ProfileRepository
+
+    repo = ProfileRepository()
+    llm = LLMClient()
+    candidate = repo.get_or_create_default_candidate()
+    assert candidate.id is not None
+    candidate_id = candidate.id
+
+    if experiences:
+        typer.echo("Consolidating experiences (this calls the model a few times) ...")
+        result = consolidate_experiences(repo, llm, candidate_id)
+        typer.secho(
+            f"  experiences: {result['before']} -> {result['after']}", fg=typer.colors.GREEN
+        )
+    if skills:
+        typer.echo("Consolidating skills ...")
+        result = consolidate_skills(repo, llm, candidate_id)
+        typer.secho(f"  skills: {result['before']} -> {result['after']}", fg=typer.colors.GREEN)
+
+    typer.secho("Consolidation complete.", fg=typer.colors.GREEN, bold=True)
+
+
+@app.command()
+def interview() -> None:
+    """Run the gap-aware onboarding interview."""
+    typer.echo("interview: not implemented yet (Phase 3).")
+
+
+@voice_app.command("build")
+def voice_build(
+    harvest: bool = typer.Option(
+        True,
+        "--harvest/--no-harvest",
+        help="Harvest VOICE-flagged passages out of the master doc into writing "
+        "samples before distilling (idempotent).",
+    ),
+) -> None:
+    """Distill the voice profile from your writing samples, and save it."""
+    from app.llm import LLMClient
+    from app.profile.repository import ProfileRepository
+    from app.voice import distill_voice, draft_to_voice_profile, harvest_master_doc_voice
+
+    repo = ProfileRepository()
+    candidate = repo.get_or_create_default_candidate()
+    assert candidate.id is not None
+
+    if harvest:
+        typer.echo("Harvesting master-doc VOICE passages ...")
+        n = harvest_master_doc_voice(LLMClient(), repo, candidate.id)
+        typer.secho(f"Harvested {n} master-doc voice passage(s).", fg=typer.colors.GREEN)
+
+    samples = repo.list_writing_samples(candidate.id)
+    if not samples:
+        typer.secho(
+            "No writing samples. Ingest essays/cover letters first "
+            "(`ajp ingest --essay ... --cover-letter ...`).",
+            fg=typer.colors.YELLOW,
+        )
+        raise typer.Exit(code=1)
+
+    typer.echo(f"Distilling voice from {len(samples)} writing samples ...")
+    draft = distill_voice(LLMClient(), samples)
+    sample_ids = [s.id for s in samples if s.id is not None]
+    voice = repo.set_voice_profile(
+        draft_to_voice_profile(draft, candidate_id=candidate.id, sample_ids=sample_ids)
+    )
+    typer.secho(f"Tone: {voice.tone}", fg=typer.colors.GREEN)
+    typer.echo(voice.summary or "")
+    typer.secho("Saved voice profile.", fg=typer.colors.GREEN, bold=True)
+
+
+@profile_app.command("show")
+def profile_show(
+    notes: bool = typer.Option(
+        False, "--notes", help="Include internal handling notes (never surfaced downstream)."
+    ),
+) -> None:
+    """Render the whole profile as readable Markdown."""
+    from app.profile.markdown import profile_to_markdown
+    from app.profile.repository import ProfileRepository
+
+    repo = ProfileRepository()
+    candidate = repo.get_or_create_default_candidate()
+    assert candidate.id is not None
+    profile = repo.get_master_profile(candidate.id)
+    typer.echo(profile_to_markdown(profile, include_handling_notes=notes))
+
+
+@profile_app.command("add-note")
+def profile_add_note(note: str) -> None:
+    """Add a candidate-level handling note (a 'do not surface' / framing rule).
+
+    Handling notes are hard constraints on every generated resume and cover
+    letter, and are never printed in the output themselves. Use them to suppress
+    or reframe something globally, e.g.
+    `ajp profile add-note "Do not mention being named by the Senior Minister of State."`
+    """
+    from app.profile.repository import ProfileRepository
+
+    repo = ProfileRepository()
+    candidate = repo.get_or_create_default_candidate()
+    candidate.handling_notes = [*candidate.handling_notes, note.strip()]
+    repo.update_candidate(candidate)
+    typer.secho(
+        f"Added handling note ({len(candidate.handling_notes)} total).", fg=typer.colors.GREEN
+    )
+
+
+@profile_app.command("list-notes")
+def profile_list_notes() -> None:
+    """List candidate-level handling notes (with their indices)."""
+    from app.profile.repository import ProfileRepository
+
+    candidate = ProfileRepository().get_or_create_default_candidate()
+    if not candidate.handling_notes:
+        typer.echo("(no candidate-level handling notes)")
+        return
+    for i, n in enumerate(candidate.handling_notes):
+        typer.echo(f"  [{i}] {n}")
+
+
+@profile_app.command("remove-note")
+def profile_remove_note(index: int) -> None:
+    """Remove a candidate-level handling note by its index (see `list-notes`)."""
+    from app.profile.repository import ProfileRepository
+
+    repo = ProfileRepository()
+    candidate = repo.get_or_create_default_candidate()
+    if not 0 <= index < len(candidate.handling_notes):
+        typer.secho(f"No note at index {index}. See `ajp profile list-notes`.", fg=typer.colors.RED)
+        raise typer.Exit(code=1)
+    removed = candidate.handling_notes.pop(index)
+    repo.update_candidate(candidate)
+    typer.secho(f"Removed: {removed}", fg=typer.colors.YELLOW)
+
+
+# --- preferences ---
+@prefs_app.command("derive")
+def preferences_derive() -> None:
+    """Draft preferences from the master profile (LLM), then save them."""
+    from app.llm import LLMClient
+    from app.profile.preferences import derive_preferences, draft_to_preferences
+    from app.profile.repository import ProfileRepository
+
+    repo = ProfileRepository()
+    candidate = repo.get_or_create_default_candidate()
+    assert candidate.id is not None
+    profile = repo.get_master_profile(candidate.id)
+
+    typer.echo("Deriving preferences from your profile ...")
+    draft = derive_preferences(LLMClient(), profile)
+    saved = repo.set_preferences(draft_to_preferences(draft, candidate_id=candidate.id))
+    _print_preferences(saved)
+    typer.secho("Saved. Edit with `ajp preferences set` or in Supabase.", fg=typer.colors.GREEN)
+
+
+@prefs_app.command("show")
+def preferences_show() -> None:
+    """Show current preferences."""
+    from app.profile.repository import ProfileRepository
+
+    repo = ProfileRepository()
+    candidate = repo.get_or_create_default_candidate()
+    assert candidate.id is not None
+    prefs = repo.get_preferences(candidate.id)
+    if prefs is None:
+        typer.secho("No preferences set. Run `ajp preferences derive`.", fg=typer.colors.YELLOW)
+        raise typer.Exit(code=1)
+    _print_preferences(prefs)
+
+
+@prefs_app.command("set")
+def preferences_set(
+    role_types: str | None = typer.Option(None, help="Comma-separated; replaces the field."),
+    domains: str | None = typer.Option(None, help="Comma-separated (swe,ml,quant,...)."),
+    industries: str | None = typer.Option(None, help="Comma-separated."),
+    company_sizes: str | None = typer.Option(None, help="Comma-separated (startup,midsize,large)."),
+    markets: str | None = typer.Option(None, help="Comma-separated (uk,sg,us,cn)."),
+    avoid: str | None = typer.Option(None, help="Comma-separated things to avoid."),
+) -> None:
+    """Overwrite specific preference fields (only the ones you pass)."""
+    from app.profile.models import Preferences
+    from app.profile.repository import ProfileRepository
+
+    repo = ProfileRepository()
+    candidate = repo.get_or_create_default_candidate()
+    assert candidate.id is not None
+    prefs = repo.get_preferences(candidate.id) or Preferences(candidate_id=candidate.id)
+
+    for field, value in (
+        ("role_types", _split(role_types)),
+        ("domains", _split(domains)),
+        ("industries", _split(industries)),
+        ("company_sizes", _split(company_sizes)),
+        ("location_markets", _split(markets)),
+        ("avoid", _split(avoid)),
+    ):
+        if value is not None:
+            setattr(prefs, field, value)
+
+    _print_preferences(repo.set_preferences(prefs))
+
+
+@prefs_app.command("set-guidance")
+def preferences_set_guidance(text: str) -> None:
+    """Set standing résumé-generation guidance — what to prioritise on every resume.
+
+    Free text, applied to every `ajp generate` as a standing steer (a per-listing
+    `--steer` still takes precedence). Examples:
+      "Prioritise substantial paid roles and published work over side projects."
+      "Lead with ML/quant relevance; keep the RSAF paper; drop toy projects first."
+    """
+    from app.generation.resume import RESUME_GUIDANCE_KEY
+    from app.profile.models import Preferences
+    from app.profile.repository import ProfileRepository
+
+    repo = ProfileRepository()
+    candidate = repo.get_or_create_default_candidate()
+    assert candidate.id is not None
+    prefs = repo.get_preferences(candidate.id) or Preferences(candidate_id=candidate.id)
+    prefs.extra = {**prefs.extra, RESUME_GUIDANCE_KEY: text.strip()}
+    repo.set_preferences(prefs)
+    typer.secho("Saved résumé-generation guidance.", fg=typer.colors.GREEN)
+    typer.echo(f"  {text.strip()}")
+
+
+@prefs_app.command("guidance")
+def preferences_guidance() -> None:
+    """Show the standing résumé-generation guidance (if set)."""
+    from app.generation.resume import RESUME_GUIDANCE_KEY
+    from app.profile.repository import ProfileRepository
+
+    candidate = ProfileRepository().get_or_create_default_candidate()
+    assert candidate.id is not None
+    prefs = ProfileRepository().get_preferences(candidate.id)
+    guidance = prefs.extra.get(RESUME_GUIDANCE_KEY) if prefs else None
+    typer.echo(guidance or "(no standing résumé-generation guidance set)")
+
+
+@prefs_app.command("clear-guidance")
+def preferences_clear_guidance() -> None:
+    """Remove the standing résumé-generation guidance."""
+    from app.generation.resume import RESUME_GUIDANCE_KEY
+    from app.profile.repository import ProfileRepository
+
+    repo = ProfileRepository()
+    candidate = repo.get_or_create_default_candidate()
+    assert candidate.id is not None
+    prefs = repo.get_preferences(candidate.id)
+    if prefs and RESUME_GUIDANCE_KEY in prefs.extra:
+        prefs.extra = {k: v for k, v in prefs.extra.items() if k != RESUME_GUIDANCE_KEY}
+        repo.set_preferences(prefs)
+    typer.secho("Cleared résumé-generation guidance.", fg=typer.colors.YELLOW)
+    typer.secho("Saved.", fg=typer.colors.GREEN)
+
+
+def _print_preferences(prefs) -> None:  # type: ignore[no-untyped-def]
+    typer.echo("Preferences:")
+    for label, values in (
+        ("Role types", prefs.role_types),
+        ("Domains", prefs.domains),
+        ("Industries", prefs.industries),
+        ("Company sizes", prefs.company_sizes),
+        ("Markets", prefs.location_markets),
+        ("Avoid", prefs.avoid),
+    ):
+        typer.echo(f"  {label}: {', '.join(values) if values else '-'}")
+
+
+# --- listings ---
+@listings_app.command("add")
+def listings_add(
+    url: str | None = typer.Option(None, help="Job posting URL."),
+    text: str | None = typer.Option(None, help="Raw JD text (for pages that won't fetch)."),
+) -> None:
+    """Ingest one listing from a URL or pasted JD text; parse and score it."""
+    from app.listings.ingest import ListingIngestor
+    from app.listings.repository import ListingRepository
+    from app.llm import LLMClient
+    from app.profile.repository import ProfileRepository
+
+    if not url and not text:
+        typer.secho("Pass --url or --text.", fg=typer.colors.YELLOW)
+        raise typer.Exit(code=1)
+
+    profile_repo = ProfileRepository()
+    candidate = profile_repo.get_or_create_default_candidate()
+    assert candidate.id is not None
+    ingestor = ListingIngestor(ListingRepository(), profile_repo, LLMClient())
+
+    typer.echo("Fetching, parsing, and scoring ...")
+    listing = ingestor.ingest_manual(candidate_id=candidate.id, url=url, text=text)
+    typer.secho(
+        f"[{listing.score}] {listing.role_title} @ {listing.company} "
+        f"({listing.status}) — {listing.score_rationale}",
+        fg=typer.colors.GREEN,
+    )
+
+
+@listings_app.command("add-batch")
+def listings_add_batch(
+    urls: list[str] | None = typer.Argument(  # noqa: B008 - typer argument factory
+        None, help="Job URLs (space-separated)."
+    ),
+    file: str | None = typer.Option(
+        None, "--file", help="Path to a file of URLs (one per line; # comments ok)."
+    ),
+) -> None:
+    """Ingest many listings at once from URLs and/or a file (fetch, parse, score each).
+
+    Pairs with the Trackr link-grabber snippet: grab links in your browser, paste
+    them here (or into a file) and this fetches/scores them all. Failures on one
+    URL don't stop the rest.
+    """
+    from pathlib import Path
+
+    from app.listings.ingest import (
+        ListingIngestor,
+        dedupe_preserving_order,
+        parse_url_lines,
+    )
+    from app.listings.repository import ListingRepository
+    from app.llm import LLMClient
+    from app.profile.repository import ProfileRepository
+
+    collected = list(urls or [])
+    if file:
+        collected += parse_url_lines(Path(file).read_text(encoding="utf-8"))
+    targets = dedupe_preserving_order(collected)
+    if not targets:
+        typer.secho("No URLs given. Pass URLs or --file.", fg=typer.colors.YELLOW)
+        raise typer.Exit(code=1)
+
+    profile_repo = ProfileRepository()
+    candidate = profile_repo.get_or_create_default_candidate()
+    assert candidate.id is not None
+    ingestor = ListingIngestor(ListingRepository(), profile_repo, LLMClient())
+
+    ok = 0
+    failed = 0
+    typer.echo(f"Ingesting {len(targets)} URLs ...")
+    for url in targets:
+        try:
+            listing = ingestor.ingest_manual(candidate_id=candidate.id, url=url)
+            ok += 1
+            typer.secho(
+                f"  [{listing.score}] {listing.status:9} {listing.role_title} @ {listing.company}",
+                fg=typer.colors.GREEN,
+            )
+        except Exception as exc:  # noqa: BLE001 - one bad URL shouldn't abort the batch
+            failed += 1
+            typer.secho(f"  [skip] {url}: {exc}", fg=typer.colors.RED)
+
+    typer.secho(
+        f"Done: {ok} ingested, {failed} skipped. See `ajp listings list`.",
+        fg=typer.colors.GREEN,
+        bold=True,
+    )
+
+
+@listings_app.command("list")
+def listings_list(
+    all_: bool = typer.Option(False, "--all", help="Show all, not just surfaced."),
+) -> None:
+    """List scored listings, highest score first."""
+    from app.listings.models import ListingStatus
+    from app.listings.repository import ListingRepository
+    from app.profile.repository import ProfileRepository
+
+    candidate = ProfileRepository().get_or_create_default_candidate()
+    assert candidate.id is not None
+    repo = ListingRepository()
+    listings = repo.list(candidate.id, status=None if all_ else ListingStatus.SURFACED)
+    if not listings:
+        typer.echo("No listings." if all_ else "No surfaced listings. Try --all.")
+        return
+    typer.secho(f"{'SCORE':>5}  {'STATUS':9}  ROLE @ COMPANY  (market/domain)", bold=True)
+    for lst in listings:
+        score = str(lst.score) if lst.score is not None else "--"
+        typer.echo(
+            f"{score:>5}  {lst.status:9}  {lst.role_title} @ {lst.company}  "
+            f"({lst.market}/{lst.domain})"
+        )
+        typer.secho(f"        {lst.id}", dim=True)
+    typer.echo("\nUse `ajp listings show <id>` for the JD summary and scoring rationale.")
+
+
+@listings_app.command("show")
+def listings_show(listing_id: str) -> None:
+    """Show one listing in full, including the scoring rationale."""
+    from uuid import UUID
+
+    from app.listings.repository import ListingRepository
+
+    lst = ListingRepository().get(UUID(listing_id))
+    if lst is None:
+        typer.secho("No listing with that id.", fg=typer.colors.RED)
+        raise typer.Exit(code=1)
+
+    typer.secho(f"{lst.role_title}  @  {lst.company}", bold=True)
+    typer.echo(
+        f"  score {lst.score}  |  status {lst.status}  |  {lst.market}/{lst.domain}"
+        f"  |  ats {lst.ats}"
+    )
+    for label, value in (("location", lst.location), ("deadline", lst.deadline), ("url", lst.url)):
+        if value:
+            typer.echo(f"  {label}: {value}")
+
+    if lst.jd_summary:
+        typer.echo(f"\nSummary:\n  {lst.jd_summary}")
+    if lst.requirements:
+        typer.echo("\nRequirements:")
+        for r in lst.requirements:
+            typer.echo(f"  - {r}")
+
+    typer.secho("\nWhy this score:", bold=True)
+    if lst.score_rationale:
+        typer.echo(f"  {lst.score_rationale}")
+    breakdown = lst.score_breakdown or {}
+    if breakdown.get("filtered"):
+        typer.secho(f"  filtered: {breakdown['filtered']}", fg=typer.colors.YELLOW)
+    for label, key in (("matched", "matched"), ("missing", "missing")):
+        items = breakdown.get(key) or []
+        if items:
+            typer.echo(f"  {label}:")
+            for item in items:
+                typer.echo(f"    - {item}")
+
+
+@listings_app.command("choose")
+def listings_choose(listing_id: str) -> None:
+    """Mark a listing as chosen (the HITL gate into generation)."""
+    _set_listing_status(listing_id, "chosen")
+
+
+@listings_app.command("dismiss")
+def listings_dismiss(listing_id: str) -> None:
+    """Dismiss a listing."""
+    _set_listing_status(listing_id, "dismissed")
+
+
+def _set_listing_status(listing_id: str, status: str) -> None:
+    from uuid import UUID
+
+    from app.listings.models import ListingStatus
+    from app.listings.repository import ListingRepository
+
+    ListingRepository().set_status(UUID(listing_id), ListingStatus(status))
+    typer.secho(f"Listing {listing_id} -> {status}.", fg=typer.colors.GREEN)
+
+
+@app.command()
+def generate(
+    listing_id: str,
+    refresh_company: bool = typer.Option(
+        False, "--refresh-company", help="Re-run company research instead of using the cache."
+    ),
+    out_dir: str = typer.Option(
+        "out", "--out-dir", help="Directory to write the .tex / .pdf / cover letter into."
+    ),
+    pdf: bool = typer.Option(
+        True, "--pdf/--no-pdf", help="Compile a PDF if a LaTeX toolchain is available."
+    ),
+    max_pages: int = typer.Option(
+        1, "--max-pages", help="Trim the resume to fit within this many pages (needs a compiler)."
+    ),
+    steer: str | None = typer.Option(
+        None,
+        "--steer",
+        help="Free-text guidance to override the resume's selection/ranking "
+        "(e.g. 'include Jane Street; rank web-raider first; drop BMTC'). "
+        "Review the ranking with `ajp application ranking <id>` first.",
+    ),
+) -> None:
+    """Generate a tailored resume + cover letter for a listing.
+
+    Researches the company, tailors the resume into the LaTeX template, writes
+    the cover letter, and saves ``resume.tex`` / ``cover_letter.txt`` (and a PDF
+    if ``latexmk``/``pdflatex`` is installed) under ``<out-dir>/<company>-<timestamp>/``.
+    When a compiler is present, the resume is compiled, its page count measured,
+    and the least-relevant content trimmed until it fits ``--max-pages``.
+
+    The tailorer also returns a ranking of every experience/project it considered;
+    review it with `ajp application ranking <id>`, then regenerate with ``--steer``.
+    """
+    from datetime import datetime
+    from pathlib import Path
+    from uuid import UUID
+
+    from app.generation.latex import compile_to_page_limit
+    from app.generation.pipeline import generate_application
+    from app.generation.repository import GenerationRepository
+    from app.generation.resume import TailoredResume
+    from app.listings.repository import ListingRepository
+    from app.profile.repository import ProfileRepository
+
+    typer.echo("Researching the company, tailoring the resume, and writing the letter ...")
+    application = generate_application(
+        UUID(listing_id), refresh_company=refresh_company, steer=steer
+    )
+
+    listing = ListingRepository().get(application.listing_id)
+    company = (listing.company if listing else None) or "application"
+    dest = Path(out_dir) / f"{_slug(company)}-{datetime.now():%Y%m%d-%H%M%S}"
+    dest.mkdir(parents=True, exist_ok=True)
+    if application.cover_letter:
+        (dest / "cover_letter.txt").write_text(application.cover_letter)
+
+    typer.secho(
+        f"Draft saved (application {application.id}) -> {dest}/", fg=typer.colors.GREEN, bold=True
+    )
+
+    if not application.resume_content:
+        typer.echo(f"View it with `ajp application show {application.id}`.")
+        return
+
+    tex_path = dest / "resume.tex"
+    resume = TailoredResume.model_validate(application.resume_content)
+
+    if not pdf:
+        tex_path.write_text(application.resume_tex or "")
+        typer.echo(f"  resume: {tex_path} (not compiled: --no-pdf)")
+        typer.echo(f"View it with `ajp application show {application.id}`.")
+        return
+
+    candidate = ProfileRepository().get_candidate(application.candidate_id)
+    assert candidate is not None
+    result = compile_to_page_limit(resume, candidate, tex_path, max_pages=max_pages)
+
+    # Persist whatever the loop settled on (trimming may have changed the resume).
+    application.resume_tex = result.tex
+    application.resume_content = result.resume.model_dump(mode="json")
+    if result.pdf_path is not None:
+        application.resume_pdf_path = str(result.pdf_path)
+    GenerationRepository().upsert_application(application)
+
+    typer.echo(f"  resume: {tex_path}")
+    if result.trims:
+        typer.secho(
+            f"  trimmed to fit {max_pages} page(s): " + "; ".join(result.trims),
+            fg=typer.colors.YELLOW,
+        )
+    if result.pdf_path is not None:
+        colour = typer.colors.GREEN if result.within_limit else typer.colors.YELLOW
+        typer.secho(f"  pdf:    {result.pdf_path} ({result.pages} page(s))", fg=colour)
+        if not result.within_limit:
+            typer.secho(
+                "  note:   still over the limit at the content floor — trim manually or "
+                "raise --max-pages.",
+                fg=typer.colors.YELLOW,
+            )
+    else:
+        typer.secho(
+            "  pdf:    not compiled (no latexmk/pdflatex found or compile failed) — "
+            "the .tex is ready to compile; page count unverified.",
+            fg=typer.colors.YELLOW,
+        )
+    typer.echo(f"View it with `ajp application show {application.id}`.")
+    typer.echo(
+        f"See why each experience/project was chosen: `ajp application ranking {application.id}` "
+        '(then regenerate with `ajp generate <listing_id> --steer "..."`).'
+    )
+
+
+def _print_ranking(resume_content: dict) -> None:  # type: ignore[type-arg]
+    """Render a TailoredResume's ranking as a readable table."""
+    from app.generation.resume import TailoredResume
+
+    resume = TailoredResume.model_validate(resume_content)
+    if not resume.ranking:
+        typer.echo("(no ranking recorded — regenerate to produce one)")
+        return
+    ranked = sorted(resume.ranking, key=lambda r: r.score, reverse=True)
+    typer.secho("\n--- Selection ranking (why each item was chosen) ---", bold=True)
+    for r in ranked:
+        mark = (
+            typer.style("✓ in ", fg=typer.colors.GREEN)
+            if r.included
+            else typer.style("· out", fg=typer.colors.BRIGHT_BLACK)
+        )
+        head = f"  {mark}  [{r.score:>3}] {r.kind:<10} {r.label}"
+        typer.echo(head)
+        typer.secho(f"          {r.rationale}", fg=typer.colors.BRIGHT_BLACK)
+
+
+@application_app.command("ranking")
+def application_ranking(application_id: str) -> None:
+    """Show how the model ranked experiences/projects for this application.
+
+    Every considered item gets a 0-100 relevance score, an in/out decision, and
+    a one-line rationale. To change the outcome, regenerate with steering:
+    `ajp generate <listing_id> --steer "include X; rank Y first; drop Z"`.
+    """
+    from uuid import UUID
+
+    from app.generation.repository import GenerationRepository
+
+    application = GenerationRepository().get_application(UUID(application_id))
+    if application is None:
+        typer.secho("No application with that id.", fg=typer.colors.RED)
+        raise typer.Exit(code=1)
+    if not application.resume_content:
+        typer.secho("This application has no resume yet.", fg=typer.colors.YELLOW)
+        raise typer.Exit(code=1)
+
+    typer.secho(f"Application {application.id}", bold=True)
+    if application.meta.get("steer"):
+        typer.secho(f"Active steer: {application.meta['steer']}", fg=typer.colors.CYAN)
+    _print_ranking(application.resume_content)
+
+
+@application_app.command("show")
+def application_show(application_id: str) -> None:
+    """Show a generated application (cover letter, status)."""
+    from uuid import UUID
+
+    from app.generation.repository import GenerationRepository
+
+    application = GenerationRepository().get_application(UUID(application_id))
+    if application is None:
+        typer.secho("No application with that id.", fg=typer.colors.RED)
+        raise typer.Exit(code=1)
+
+    typer.secho(f"Application {application.id}  |  status {application.status}", bold=True)
+    if application.resume_tex:
+        typer.secho("\n--- Resume ---", bold=True)
+        if application.resume_pdf_path:
+            typer.echo(f"PDF: {application.resume_pdf_path}")
+        typer.echo("(LaTeX stored; use `ajp generate` to (re)write resume.tex to disk)")
+    if application.cover_letter:
+        typer.secho("\n--- Cover letter ---\n", bold=True)
+        typer.echo(application.cover_letter)
+    else:
+        typer.echo("(no cover letter yet)")
+
+
+@application_app.command("list")
+def application_list() -> None:
+    """List generated applications (most recent first) with company, role, status."""
+    from app.generation.repository import GenerationRepository
+    from app.listings.repository import ListingRepository
+    from app.profile.repository import ProfileRepository
+
+    candidate = ProfileRepository().get_or_create_default_candidate()
+    assert candidate.id is not None
+    apps = GenerationRepository().list_applications(candidate.id)
+    if not apps:
+        typer.echo("No applications yet. Generate one with `ajp generate <listing_id>`.")
+        return
+
+    listings = ListingRepository()
+    colour = {
+        "draft": typer.colors.YELLOW,
+        "approved": typer.colors.GREEN,
+        "submitted": typer.colors.BLUE,
+    }
+    for a in apps:
+        listing = listings.get(a.listing_id)
+        where = f"{listing.company} — {listing.role_title}" if listing else str(a.listing_id)
+        status = typer.style(f"{a.status:<9}", fg=colour.get(str(a.status), typer.colors.WHITE))
+        typer.echo(f"  {status}  {where}")
+        typer.secho(f"             {a.id}", fg=typer.colors.BRIGHT_BLACK)
+
+
+@application_app.command("approve")
+def application_approve(
+    application_id: str,
+    submitted: bool = typer.Option(
+        False, "--submitted", help="Mark as submitted instead of approved."
+    ),
+) -> None:
+    """Move an application's status forward (draft -> approved -> submitted)."""
+    from uuid import UUID
+
+    from app.generation.models import ApplicationStatus
+    from app.generation.repository import GenerationRepository
+
+    repo = GenerationRepository()
+    application = repo.get_application(UUID(application_id))
+    if application is None:
+        typer.secho("No application with that id.", fg=typer.colors.RED)
+        raise typer.Exit(code=1)
+    new_status = ApplicationStatus.SUBMITTED if submitted else ApplicationStatus.APPROVED
+    application.status = new_status.value  # type: ignore[assignment]  # use_enum_values stores the str
+    repo.upsert_application(application)
+    typer.secho(f"Application {application.id} -> {new_status.value}.", fg=typer.colors.GREEN)
+
+
+if __name__ == "__main__":
+    app()

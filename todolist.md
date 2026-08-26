@@ -4,35 +4,47 @@ Ordered roughly by dependency. Module 1 is broken into concrete steps; later
 modules are high-level phases, expanded when we reach them.
 
 ## Phase 0 — Project scaffolding
-- [ ] Monorepo layout: `backend/`, `supabase/`, `frontend/` (reserved).
-- [ ] Python project: `pyproject.toml` (`uv`), Typer, Pydantic, Anthropic SDK,
+- [x] Monorepo layout: `backend/`, `supabase/`, `frontend/` (reserved).
+- [x] Python project: `pyproject.toml` (`uv`), Typer, Pydantic, Anthropic SDK,
       Supabase client, `pypdf`/`python-docx`, `httpx`.
-- [ ] `backend/app/config.py` — env-driven settings (API keys, model IDs,
+- [x] `backend/app/config.py` — env-driven settings (API keys, model IDs,
       Supabase URL/keys, GitHub PAT).
-- [ ] `.env.example` + README setup steps (clone → env → schema → run).
-- [ ] `backend/app/llm/` — Anthropic client wrapper + per-task model config
+- [x] `.env.example` + README setup steps (clone → env → schema → run).
+- [x] `backend/app/llm/` — Anthropic client wrapper + per-task model config
       (Opus interview / Haiku parse, overridable).
+- [x] `ajp check` command + config/llm tests; ruff + mypy clean.
 
 ## Phase 1 — Database & models
-- [ ] `supabase/migrations/` — SQL for `candidate`, `source_documents`,
+- [x] `supabase/migrations/` — SQL for `candidate`, `source_documents`,
       `experiences`, `skills`, `github_profile`, `writing_samples`,
       `voice_profile`, `preferences`, `interview_sessions`, `interview_turns`.
-- [ ] `backend/app/profile/models.py` — Pydantic models mirroring the schema
-      (the shared contract).
-- [ ] `backend/app/db/` — Supabase client.
-- [ ] `backend/app/profile/` — data-access layer (upsert/get/export) +
-      merge/dedup logic.
-- [ ] Verify: `supabase db push` on a fresh project stands up the schema.
+- [x] `backend/app/profile/models.py` — Pydantic models mirroring the schema
+      (the shared contract) + `MasterProfile` aggregate + Markdown export.
+- [x] `backend/app/db/` — Supabase client.
+- [x] `backend/app/profile/` — data-access layer (upsert/get + natural-key
+      dedup for experiences). LLM-based merge deferred to Phase 2 ingestion.
+- [x] Verified locally: migration applies on real Postgres 16; models match all
+      10 tables 1:1; `to_row` → Postgres → `from_row` round-trips.
+- [ ] Verify `supabase db push` against a live Supabase project (needs creds).
 
 ## Phase 2 — Ingestion
-- [ ] Resume parser (PDF/DOCX → text → Haiku → experiences/skills). **Anchor
-      input — build first against a real resume.**
-- [ ] Master-doc parser (freeform Markdown/text, no length limit).
-- [ ] Essays / cover-letter parser → `writing_samples` (+ any experiences).
-- [ ] GitHub API client → `github_profile` (metadata only).
-- [ ] LinkedIn export parser (ZIP/CSV → Haiku normalize).
-- [ ] Retain every raw input in `source_documents`.
-- [ ] `ingest` CLI command wiring all parsers.
+- [x] Document text extraction (PDF/DOCX/TXT/MD).
+- [x] LLM structured extraction (`messages.parse` + Pydantic schema, Haiku).
+- [x] Resume parser (→ experiences/skills, contact backfill).
+- [x] Master-doc parser (freeform; detail-preserving guidance).
+- [x] Essays / cover-letter parser → `writing_samples`.
+- [x] GitHub API client → `github_profile` (metadata only; pure transform tested).
+- [x] Retain every raw input in `source_documents`.
+- [x] `ingest` CLI command wiring all parsers.
+- [x] Tests for deterministic pieces (extraction schema, mapping, github, docs).
+- [x] Live run against real resume + master doc (41 exp / 42 skills extracted).
+- [x] Refinement: semantic consolidation (`ajp consolidate`) — LLM cluster+merge
+      of duplicate experiences; skills de-dup/re-categorize.
+- [x] Refinement: `handling_notes` field (schema + extraction) so "do not surface"
+      guidance is separated from `detail` and never output.
+- [x] `ajp profile show [--notes]` wired up (Markdown render).
+- [ ] LinkedIn export parser (ZIP/CSV → Haiku normalize) — deferred to Phase 2b.
+- [ ] Live check: run `ajp consolidate` on real data; review, tune prompts.
 
 ## Phase 3 — Interview engine
 - [ ] Gap detection over the ingested profile (thin bullets, missing
@@ -55,13 +67,44 @@ modules are high-level phases, expanded when we reach them.
 - [ ] Tests: parser fixtures, gap detection, DAL round-trips.
 - [ ] Module 1 acceptance walk-through end to end.
 
+## Module 2 — Listing ingestion (branch: feat/listing-ingestion)
+- [x] `listings` schema + `Listing` model + repository (dedup by URL).
+- [x] Preferences derived from profile (`ajp preferences derive/show/set`).
+- [x] Manual ingest (`ajp listings add --url|--text`): fetch (Greenhouse/Lever
+      JSON fast-paths + generic HTTP) → LLM parse → hard filters + LLM relevance
+      score → store. `ajp listings list/choose/dismiss`.
+- [x] company_group normalization (one-role-per-company grouping; enforcement
+      of "pick one" deferred to dashboard/HITL).
+- [x] Batch ingest (`ajp listings add-batch`) + Trackr link-grabber snippet
+      (`scripts/trackr-link-grabber.js`). UK Tracker (The Trackr) is a paid SPA;
+      scraping its API is ToS/account-risky, so we grab links browser-side and
+      batch-ingest the public application pages instead.
+- [ ] Greenhouse/Lever/Workday board scrapers (beyond single-URL fast-paths).
+- [ ] Live check: derive preferences, add a real listing, review scoring.
+
+## Module 3 — Application generation (branch: feat/application-generation)
+- [x] Voice distillation (`ajp voice build`) — style guide from writing samples.
+- [x] `applications` + `company_briefs` schema (migration 005).
+- [x] Company research (`llm.research` web-search brief, cached per company,
+      graceful fallback) grounded per company.
+- [x] Cover-letter generation (JD + brief + profile + voice + handling_notes,
+      humanified; style-only writing samples) → `ajp generate <listing_id>`.
+      Validated across contrasting employers (quant vs sovereign fund).
+- [x] Résumé tailoring + render into the user's jakegut LaTeX template → .tex/PDF.
+      Grounded (no invented metrics; GitHub language bytes are not skills),
+      handling_notes honoured, reverse-chronological, hobbies, math ~.
+- [x] One-page guarantee: compile → measure → depth-preserving trim loop
+      (`--max-pages`); fill-the-page generation.
+- [x] Selection transparency: `ajp application ranking <id>` (scored, in/out,
+      rationale) + `ajp generate --steer "..."` to override and regenerate.
+- [x] Review loop: `ajp application list` / `show` / `approve [--submitted]`.
+- [x] Live check: `voice build`, then `generate` for chosen listings; reviewed
+      and iterated (Citadel, GIC, and others).
+
 ## Later phases (expanded when reached)
-- [ ] **Module 2** — Listing ingestion: manual paste first, then UK Tracker
-      scraper; `listings` model with `source`; preference scoring;
-      one-role-per-company grouping.
-- [ ] **Module 3** — Application generation: tailored resume + humanified voiced
-      cover letter (JD + scraped company values + master profile).
-- [ ] **Module 4** — Dashboard skeleton; migrate interview + review queues to web.
+- [ ] **Module 4** — Dashboard skeleton; migrate interview + review queues to web
+      (render the ranking as an editable list; "Regenerate" calls generate with
+      steer — the backend seam is already in place).
 - [ ] **Module 5** — Form auto-fill (Playwright) + essay answers + field review.
 - [ ] **Module 6** — Gmail monitor (API + Pub/Sub) + response classification.
 - [ ] **Module 7** — Tracker (Supabase source of truth + Notion-synced view).
