@@ -871,5 +871,24 @@ def application_approve(
     typer.secho(f"Application {application.id} -> {new_status.value}.", fg=typer.colors.GREEN)
 
 
+@app.command()
+def serve(
+    host: str = typer.Option("127.0.0.1", "--host", help="Interface to bind."),
+    port: int = typer.Option(8000, "--port", help="Port to listen on."),
+    reload: bool = typer.Option(
+        False, "--reload", help="Auto-reload on code changes (development)."
+    ),
+) -> None:
+    """Run the dashboard API (FastAPI) that the Next.js frontend talks to.
+
+    Serves the same applications, rankings, and generate/steer/approve actions
+    the CLI exposes, over HTTP at ``http://<host>:<port>``.
+    """
+    import uvicorn
+
+    typer.secho(f"Dashboard API on http://{host}:{port} (docs at /docs)", fg=typer.colors.GREEN)
+    uvicorn.run("app.api.main:app", host=host, port=port, reload=reload)
+
+
 if __name__ == "__main__":
     app()
