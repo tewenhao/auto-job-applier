@@ -152,8 +152,12 @@ def merge_cluster(llm: LLMClient, members: list[Experience]) -> MergedContent:
 
 
 def _merge_dates(members: list[Experience]) -> tuple[date | None, date | None, bool]:
-    starts = [m.start_date for m in members if m.start_date]
-    ends = [m.end_date for m in members if m.end_date]
+    # LinkedIn dates are exact month/year; resume/master-doc year-only dates
+    # default to Jan 1 and can be wrong. Prefer LinkedIn's dates when present.
+    linkedin = [m for m in members if m.source and "linkedin" in m.source and m.start_date]
+    pool = linkedin or members
+    starts = [m.start_date for m in pool if m.start_date]
+    ends = [m.end_date for m in pool if m.end_date]
     is_current = any(m.is_current for m in members)
     return (min(starts) if starts else None, max(ends) if ends else None, is_current)
 
