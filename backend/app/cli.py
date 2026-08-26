@@ -760,5 +760,57 @@ def application_show(application_id: str) -> None:
         typer.echo("(no cover letter yet)")
 
 
+@application_app.command("list")
+def application_list() -> None:
+    """List generated applications (most recent first) with company, role, status."""
+    from app.generation.repository import GenerationRepository
+    from app.listings.repository import ListingRepository
+    from app.profile.repository import ProfileRepository
+
+    candidate = ProfileRepository().get_or_create_default_candidate()
+    assert candidate.id is not None
+    apps = GenerationRepository().list_applications(candidate.id)
+    if not apps:
+        typer.echo("No applications yet. Generate one with `ajp generate <listing_id>`.")
+        return
+
+    listings = ListingRepository()
+    colour = {
+        "draft": typer.colors.YELLOW,
+        "approved": typer.colors.GREEN,
+        "submitted": typer.colors.BLUE,
+    }
+    for a in apps:
+        listing = listings.get(a.listing_id)
+        where = f"{listing.company} — {listing.role_title}" if listing else str(a.listing_id)
+        status = typer.style(f"{a.status:<9}", fg=colour.get(str(a.status), typer.colors.WHITE))
+        typer.echo(f"  {status}  {where}")
+        typer.secho(f"             {a.id}", fg=typer.colors.BRIGHT_BLACK)
+
+
+@application_app.command("approve")
+def application_approve(
+    application_id: str,
+    submitted: bool = typer.Option(
+        False, "--submitted", help="Mark as submitted instead of approved."
+    ),
+) -> None:
+    """Move an application's status forward (draft -> approved -> submitted)."""
+    from uuid import UUID
+
+    from app.generation.models import ApplicationStatus
+    from app.generation.repository import GenerationRepository
+
+    repo = GenerationRepository()
+    application = repo.get_application(UUID(application_id))
+    if application is None:
+        typer.secho("No application with that id.", fg=typer.colors.RED)
+        raise typer.Exit(code=1)
+    new_status = ApplicationStatus.SUBMITTED if submitted else ApplicationStatus.APPROVED
+    application.status = new_status.value  # type: ignore[assignment]  # use_enum_values stores the str
+    repo.upsert_application(application)
+    typer.secho(f"Application {application.id} -> {new_status.value}.", fg=typer.colors.GREEN)
+
+
 if __name__ == "__main__":
     app()

@@ -88,14 +88,23 @@ modules are high-level phases, expanded when we reach them.
 - [x] Company research (`llm.research` web-search brief, cached per company,
       graceful fallback) grounded per company.
 - [x] Cover-letter generation (JD + brief + profile + voice + handling_notes,
-      humanified) → `ajp generate <listing_id>`, `ajp application show <id>`.
-- [ ] Résumé tailoring + render into the user's LaTeX template → .tex/PDF.
-- [ ] Live check: `voice build`, then `generate` for a chosen listing; review.
+      humanified; style-only writing samples) → `ajp generate <listing_id>`.
+      Validated across contrasting employers (quant vs sovereign fund).
+- [x] Résumé tailoring + render into the user's jakegut LaTeX template → .tex/PDF.
+      Grounded (no invented metrics; GitHub language bytes are not skills),
+      handling_notes honoured, reverse-chronological, hobbies, math ~.
+- [x] One-page guarantee: compile → measure → depth-preserving trim loop
+      (`--max-pages`); fill-the-page generation.
+- [x] Selection transparency: `ajp application ranking <id>` (scored, in/out,
+      rationale) + `ajp generate --steer "..."` to override and regenerate.
+- [x] Review loop: `ajp application list` / `show` / `approve [--submitted]`.
+- [x] Live check: `voice build`, then `generate` for chosen listings; reviewed
+      and iterated (Citadel, GIC, and others).
 
 ## Later phases (expanded when reached)
-- [ ] **Module 3** — Application generation: tailored resume + humanified voiced
-      cover letter (JD + scraped company values + master profile).
-- [ ] **Module 4** — Dashboard skeleton; migrate interview + review queues to web.
+- [ ] **Module 4** — Dashboard skeleton; migrate interview + review queues to web
+      (render the ranking as an editable list; "Regenerate" calls generate with
+      steer — the backend seam is already in place).
 - [ ] **Module 5** — Form auto-fill (Playwright) + essay answers + field review.
 - [ ] **Module 6** — Gmail monitor (API + Pub/Sub) + response classification.
 - [ ] **Module 7** — Tracker (Supabase source of truth + Notion-synced view).

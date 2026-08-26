@@ -77,3 +77,13 @@ class GenerationRepository:
             )
         )
         return Application.from_row(row) if row else None
+
+    def list_applications(self, candidate_id: UUID) -> list[Application]:
+        rows = _rows(
+            self.client.table("applications")
+            .select("*")
+            .eq("candidate_id", str(candidate_id))
+            .order("created_at", desc=True)
+            .execute()
+        )
+        return [Application.from_row(r) for r in rows]
