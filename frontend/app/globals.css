@@ -363,22 +363,94 @@ button:disabled {
   margin-top: 10px;
 }
 
-.skill-list {
-  display: flex;
-  flex-wrap: wrap;
-  gap: 6px;
-  margin: 0;
-  padding: 0;
-  list-style: none;
+/* ---- tailored resume body ---- */
+.resume-body {
+  margin-top: 16px;
 }
 
-.skill-list li {
-  font-size: 0.82rem;
-  border: 1px solid var(--border);
-  border-radius: 6px;
-  padding: 2px 8px;
-  background: var(--panel-2);
+.resume-section + .resume-section {
+  margin-top: 22px;
+  padding-top: 20px;
+  border-top: 1px solid var(--border);
+}
+
+.resume-section-title {
+  font-size: 0.72rem;
+  text-transform: uppercase;
+  letter-spacing: 0.08em;
   color: var(--muted);
+  margin: 0 0 12px;
+}
+
+.resume-entry + .resume-entry {
+  margin-top: 16px;
+}
+
+.resume-entry-head {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 12px;
+}
+
+.resume-entry-heading {
+  font-weight: 600;
+}
+
+.resume-entry-meta {
+  color: var(--muted);
+  font-size: 0.85rem;
+  white-space: nowrap;
+}
+
+.resume-entry-sub {
+  color: var(--muted);
+  font-size: 0.9rem;
+  font-style: italic;
+}
+
+.resume-bullets {
+  margin: 8px 0 0;
+  padding-left: 20px;
+}
+
+.resume-bullets li {
+  margin-bottom: 4px;
+  font-size: 0.92rem;
+}
+
+.resume-bullets strong {
+  font-weight: 600;
+  color: var(--text);
+}
+
+.skill-groups {
+  margin: 0;
+}
+
+.skill-group {
+  display: grid;
+  grid-template-columns: 150px 1fr;
+  gap: 12px;
+  padding: 5px 0;
+}
+
+.skill-group dt {
+  font-weight: 600;
+  font-size: 0.9rem;
+}
+
+.skill-group dd {
+  margin: 0;
+  color: var(--muted);
+  font-size: 0.9rem;
+}
+
+@media (max-width: 560px) {
+  .skill-group {
+    grid-template-columns: 1fr;
+    gap: 2px;
+  }
 }
 
 .empty {

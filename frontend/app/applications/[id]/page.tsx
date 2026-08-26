@@ -134,28 +134,77 @@ export default function ApplicationPage({ params }: { params: Promise<{ id: stri
       <h2>Resume</h2>
       <section className="panel">
         {app.resume_pdf_available ? (
-          <p>
+          <p style={{ marginTop: 0 }}>
             <a href={api.resumePdfUrl(app.id)} target="_blank" rel="noreferrer">
               Open compiled PDF ↗
             </a>
           </p>
         ) : (
-          <p className="muted">
+          <p className="muted" style={{ marginTop: 0 }}>
             No compiled PDF (no LaTeX toolchain, or not yet generated). The tailored content is
             shown below.
           </p>
         )}
-        {resume && resume.skills.length > 0 && (
-          <>
-            <p className="muted" style={{ marginBottom: 6 }}>
-              Skills
-            </p>
-            <ul className="skill-list">
-              {resume.skills.map((s) => (
-                <li key={s}>{s}</li>
-              ))}
-            </ul>
-          </>
+
+        {resume ? (
+          <div className="resume-body">
+            {resume.education.length > 0 && (
+              <ResumeSection title="Education">
+                {resume.education.map((e, i) => (
+                  <ResumeEntry
+                    key={`edu-${i}`}
+                    heading={e.school}
+                    sub={e.degree}
+                    meta={[e.location, e.dates].filter(Boolean).join(" · ")}
+                    bullets={e.bullets}
+                  />
+                ))}
+              </ResumeSection>
+            )}
+
+            {resume.experience.length > 0 && (
+              <ResumeSection title="Experience">
+                {resume.experience.map((e, i) => (
+                  <ResumeEntry
+                    key={`exp-${i}`}
+                    heading={e.title}
+                    sub={[e.org, e.location].filter(Boolean).join(", ")}
+                    meta={e.dates}
+                    bullets={e.bullets}
+                  />
+                ))}
+              </ResumeSection>
+            )}
+
+            {resume.projects.length > 0 && (
+              <ResumeSection title={resume.projects_title || "Projects"}>
+                {resume.projects.map((p, i) => (
+                  <ResumeEntry
+                    key={`proj-${i}`}
+                    heading={p.name}
+                    sub={p.tools}
+                    meta={p.dates}
+                    bullets={p.bullets}
+                  />
+                ))}
+              </ResumeSection>
+            )}
+
+            {resume.skills.length > 0 && (
+              <ResumeSection title="Skills">
+                <dl className="skill-groups">
+                  {resume.skills.map((g, i) => (
+                    <div key={`skill-${i}`} className="skill-group">
+                      <dt>{g.label}</dt>
+                      <dd>{g.items}</dd>
+                    </div>
+                  ))}
+                </dl>
+              </ResumeSection>
+            )}
+          </div>
+        ) : (
+          <p className="muted">No tailored resume content on this application yet.</p>
         )}
       </section>
 
@@ -169,6 +218,57 @@ export default function ApplicationPage({ params }: { params: Promise<{ id: stri
         )}
       </section>
     </div>
+  );
+}
+
+function ResumeSection({ title, children }: { title: string; children: React.ReactNode }) {
+  return (
+    <div className="resume-section">
+      <h3 className="resume-section-title">{title}</h3>
+      {children}
+    </div>
+  );
+}
+
+function ResumeEntry({
+  heading,
+  sub,
+  meta,
+  bullets,
+}: {
+  heading: string;
+  sub?: string;
+  meta?: string;
+  bullets: string[];
+}) {
+  return (
+    <div className="resume-entry">
+      <div className="resume-entry-head">
+        <span className="resume-entry-heading">{heading}</span>
+        {meta && <span className="resume-entry-meta">{meta}</span>}
+      </div>
+      {sub && <div className="resume-entry-sub">{sub}</div>}
+      {bullets.length > 0 && (
+        <ul className="resume-bullets">
+          {bullets.map((b, i) => (
+            <li key={i}>{renderBold(b)}</li>
+          ))}
+        </ul>
+      )}
+    </div>
+  );
+}
+
+// Convert the tailorer's **bold** markers (same ones the LaTeX renderer turns
+// into \textbf{}) into <strong> for the web view.
+function renderBold(text: string): React.ReactNode {
+  const parts = text.split(/(\*\*[^*]+\*\*)/g);
+  return parts.map((part, i) =>
+    part.startsWith("**") && part.endsWith("**") ? (
+      <strong key={i}>{part.slice(2, -2)}</strong>
+    ) : (
+      <span key={i}>{part}</span>
+    ),
   );
 }
 

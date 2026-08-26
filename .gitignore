@@ -26,7 +26,6 @@ frontend/.env*
 
 # --- Generated application outputs ---
 out/
-/applications/
 
 # --- OS / editor ---
 .DS_Store

@@ -12,28 +12,41 @@ export type RankedItem = {
   rationale: string;
 };
 
+export type EducationEntry = {
+  school: string;
+  location: string;
+  degree: string;
+  dates: string;
+  bullets: string[];
+};
+
 export type ExperienceEntry = {
-  title?: string | null;
-  org?: string | null;
-  location?: string | null;
-  dates?: string | null;
+  title: string;
+  org: string;
+  location: string;
+  dates: string;
   bullets: string[];
 };
 
 export type ProjectEntry = {
-  name?: string | null;
-  tools?: string | null;
-  dates?: string | null;
+  name: string;
+  tools: string;
+  dates: string;
   bullets: string[];
+};
+
+export type SkillGroup = {
+  label: string; // e.g. "Programming"
+  items: string; // comma-separated, e.g. "Python, LaTeX"
 };
 
 export type TailoredResume = {
   ranking: RankedItem[];
-  education: unknown[];
+  education: EducationEntry[];
   experience: ExperienceEntry[];
   projects: ProjectEntry[];
   projects_title?: string | null;
-  skills: string[];
+  skills: SkillGroup[];
 };
 
 export type ApplicationSummary = {
