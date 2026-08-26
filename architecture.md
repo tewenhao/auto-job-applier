@@ -105,10 +105,10 @@ Control flows through the dashboard; data flows through Supabase.
 
 | # | Module | Responsibility | Status |
 |---|--------|----------------|--------|
-| 1 | **Candidate Profile** | Ingest all inputs into the master-superset profile; gap-filling interview; voice model; preferences. | **Building now** |
-| 2 | Listing Ingestion | Manual paste + scrapers (UK Tracker first); parse to listing model; score vs preferences. | Next |
-| 3 | Application Generation | Tailored resume + humanified, voiced cover letter grounded in JD + company values. | Later |
-| 4 | Dashboard skeleton | Web UI shell; migrates the CLI interview + review queues into a browser. | Later |
+| 1 | **Candidate Profile** | Ingest all inputs (resume, master-doc, essays, LinkedIn export, GitHub) into the master-superset profile; voice model; preferences. | **Done** |
+| 2 | Listing Ingestion | Manual paste + batch (UK Tracker link-grabber); parse to listing model; score vs preferences. | **Done** |
+| 3 | Application Generation | Tailored one-page resume (LaTeX → PDF) + humanified, voiced cover letter grounded in JD + company values; inspectable ranking + steering. | **Done** |
+| 4 | Dashboard skeleton | Web UI shell; migrates the CLI review/steer queues into a browser. | **Next** |
 | 5 | Form Auto-fill | Playwright ATS form-fill + essay answers; field-level review before submit. | Later |
 | 6 | Gmail Monitor | Gmail API + Pub/Sub; classify responses; update tracker. | Later |
 | 7 | Tracker | Supabase as source of truth + Notion-synced human-readable view. | Later |

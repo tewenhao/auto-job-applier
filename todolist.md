@@ -3,6 +3,11 @@
 Ordered roughly by dependency. Module 1 is broken into concrete steps; later
 modules are high-level phases, expanded when we reach them.
 
+**Status: Modules 1–3 complete and merged to `main`. Module 4 (Dashboard) next.**
+The conversational interview (Phase 3) was deferred — the voice model is built
+from writing samples and preferences are captured via the `ajp preferences`
+commands, so it isn't a blocker; revisit if gap-filling proves needed.
+
 ## Phase 0 — Project scaffolding
 - [x] Monorepo layout: `backend/`, `supabase/`, `frontend/` (reserved).
 - [x] Python project: `pyproject.toml` (`uv`), Typer, Pydantic, Anthropic SDK,
@@ -25,7 +30,7 @@ modules are high-level phases, expanded when we reach them.
       dedup for experiences). LLM-based merge deferred to Phase 2 ingestion.
 - [x] Verified locally: migration applies on real Postgres 16; models match all
       10 tables 1:1; `to_row` → Postgres → `from_row` round-trips.
-- [ ] Verify `supabase db push` against a live Supabase project (needs creds).
+- [x] Live Supabase project in use (ingest/generate run against it end to end).
 
 ## Phase 2 — Ingestion
 - [x] Document text extraction (PDF/DOCX/TXT/MD).
@@ -43,29 +48,33 @@ modules are high-level phases, expanded when we reach them.
 - [x] Refinement: `handling_notes` field (schema + extraction) so "do not surface"
       guidance is separated from `detail` and never output.
 - [x] `ajp profile show [--notes]` wired up (Markdown render).
-- [ ] LinkedIn export parser (ZIP/CSV → Haiku normalize) — deferred to Phase 2b.
-- [ ] Live check: run `ajp consolidate` on real data; review, tune prompts.
+- [x] LinkedIn export parser (Phase 2b) — deterministic ZIP/CSV parse
+      (positions/education/projects/honors/skills/profile); exact month dates;
+      consolidation prefers LinkedIn dates over year-only defaults.
+- [x] Live check: `ajp consolidate` on real data — 41→~30, merges correct,
+      handling_notes cleanly separated (minor residual nits noted).
 
-## Phase 3 — Interview engine
+## Phase 3 — Interview engine (DEFERRED)
+- [x] Structured preference capture → `preferences` (via `ajp preferences
+      derive/show/set`, not a conversation).
 - [ ] Gap detection over the ingested profile (thin bullets, missing
-      why/proud-moment/working-style/culture/things-not-on-CV).
-- [ ] Opus-driven adaptive conversation loop; write elaborations into
-      experience `detail`.
-- [ ] Quick structured preference capture (domains, markets, company size,
-      avoid-list) → `preferences`; refine fuzzy prefs conversationally.
-- [ ] Persist transcript to `interview_turns`; make it resumable.
-- [ ] `interview` CLI command.
+      why/proud-moment/working-style/culture/things-not-on-CV). — deferred
+- [ ] Opus-driven adaptive conversation loop writing elaborations into
+      experience `detail`; persist transcript to `interview_turns`, resumable;
+      `interview` CLI. — deferred (revisit if gap-filling is needed)
 
 ## Phase 4 — Voice model
-- [ ] Distill `voice_profile` from `writing_samples` + interview transcript.
-- [ ] Keep raw samples for few-shot use.
-- [ ] `voice build` CLI command.
+- [x] Distill `voice_profile` from `writing_samples` (interview transcript input
+      deferred) + harvest master-doc VOICE passages.
+- [x] Keep raw samples for few-shot use (style-only at generation time).
+- [x] `voice build` CLI command.
 
 ## Phase 5 — Editability & polish
-- [ ] `profile show / export` → readable Markdown of the whole profile.
-- [ ] `profile edit` (edit exported Markdown + re-import, or direct Supabase).
-- [ ] Tests: parser fixtures, gap detection, DAL round-trips.
-- [ ] Module 1 acceptance walk-through end to end.
+- [x] `profile show [--notes]` → readable Markdown of the whole profile.
+- [x] Editability: `profile add-note/list-notes/remove-note` handling notes;
+      `preferences set-guidance`. (Full Markdown-export-and-reimport not needed.)
+- [x] Tests: parser/renderer fixtures, mapping, LinkedIn, trim, DAL pieces.
+- [x] Module 1 acceptance: real ingest → consolidate → voice → generate, end to end.
 
 ## Module 2 — Listing ingestion (branch: feat/listing-ingestion)
 - [x] `listings` schema + `Listing` model + repository (dedup by URL).

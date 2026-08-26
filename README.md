@@ -17,12 +17,14 @@ gate.
 
 ## Status
 
-Building **Module 1 — Candidate Profile** first. See `todolist.md` for progress.
+**Modules 1–3 complete** (candidate profile, listing ingestion, application
+generation), all driven from the `ajp` CLI. **Module 4 — Dashboard** is next.
+See `todolist.md` for the detailed checklist.
 
 ## Layout
 
 ```
-backend/    Python agent brain + CLI (Module 1 lives here)  — see backend/README.md
+backend/    Python agent brain + CLI (Modules 1–3 live here)  — see backend/README.md
 supabase/   versioned SQL migrations (the source-of-truth schema)
 frontend/   Next.js dashboard (reserved for Module 4)
 ```
