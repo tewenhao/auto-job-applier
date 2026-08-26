@@ -202,31 +202,26 @@ def tailor_resume(
 def trim_one_step(
     resume: TailoredResume,
     *,
-    keep_experiences: int = 5,
-    keep_projects: int = 3,
-    rich_bullets: int = 2,
+    min_projects: int = 1,
+    min_experiences: int = 2,
 ) -> tuple[TailoredResume, str] | None:
     """Return a copy of ``resume`` with the single least-valuable item removed,
     plus a short description — or ``None`` when nothing more can go.
 
-    Projects (the candidate's hackathon wins) are strong signals, so they are
-    protected: trim EXPERIENCE detail before touching projects. Lists are ordered
-    most-relevant-first, so "last" is always the least relevant. Escalation:
+    Drop WHOLE entries before shaving any bullet, so the entries that survive keep
+    their numbers and full elaboration rather than everything going thin. Projects
+    are lighter signals than experiences, so they go first. Lists are ordered
+    best-first (relevance + substance), so "last" is always the weakest. Escalation:
 
-    1. bullets beyond ``rich_bullets`` on the fattest EXPERIENCE (least damaging);
-    2. extra experiences beyond ``keep_experiences``;
-    3. extra projects beyond ``keep_projects``;
-    4. bullets beyond ``rich_bullets`` on the fattest project;
-    5. experiences down to a hard floor of 2;
-    6. projects down to a hard floor of 1;
-    7. last resort — shave toward a single bullet anywhere.
+    1. drop the weakest project, down to ``min_projects``;
+    2. drop the weakest experience, down to ``min_experiences``;
+    3. only now, as a last resort, shave a bullet from the fattest entry;
+    4. drop remaining projects, then experiences, toward the bare minimum.
     """
     r = resume.model_copy(deep=True)
 
-    def _fattest(
-        entries: list[ExperienceEntry] | list[ProjectEntry] | list[ExperienceEntry | ProjectEntry],
-        floor: int,
-    ) -> ExperienceEntry | ProjectEntry | None:
+    def _fattest(floor: int) -> ExperienceEntry | ProjectEntry | None:
+        entries: list[ExperienceEntry | ProjectEntry] = [*r.experience, *r.projects]
         best: ExperienceEntry | ProjectEntry | None = None
         for entry in entries:
             if len(entry.bullets) > floor and (
@@ -235,36 +230,23 @@ def trim_one_step(
                 best = entry
         return best
 
-    def _shave(entry: ExperienceEntry | ProjectEntry) -> tuple[TailoredResume, str]:
-        entry.bullets.pop()
-        label = getattr(entry, "title", None) or getattr(entry, "name", "an entry")
+    # 1) Drop the weakest project (whole), keeping a floor.
+    if len(r.projects) > min_projects:
+        return r, f"dropped project '{r.projects.pop().name}'"
+    # 2) Drop the weakest experience (whole), keeping a floor.
+    if len(r.experience) > min_experiences:
+        return r, f"dropped experience '{r.experience.pop().title}'"
+    # 3) Last resort — shave a bullet from the fattest entry (keep >= 1 bullet).
+    fat = _fattest(1)
+    if fat is not None:
+        fat.bullets.pop()
+        label = getattr(fat, "title", None) or getattr(fat, "name", "an entry")
         return r, f"dropped a bullet from '{label}'"
-
-    # 1) Shave experience detail first (bullets beyond the rich floor).
-    fat = _fattest(r.experience, rich_bullets)
-    if fat is not None:
-        return _shave(fat)
-    # 2) Drop extra experiences beyond the keep floor.
-    if len(r.experience) > keep_experiences:
-        return r, f"dropped experience '{r.experience.pop().title}'"
-    # 3) Drop extra projects beyond the keep floor.
-    if len(r.projects) > keep_projects:
+    # 4) Nothing left to shave — drop remaining projects, then experiences.
+    if r.projects:
         return r, f"dropped project '{r.projects.pop().name}'"
-    # 4) Shave project bullets beyond the rich floor.
-    fat = _fattest(r.projects, rich_bullets)
-    if fat is not None:
-        return _shave(fat)
-    # 5) Drop experiences down to a hard floor of 2.
-    if len(r.experience) > 2:
+    if len(r.experience) > 1:
         return r, f"dropped experience '{r.experience.pop().title}'"
-    # 6) Drop projects down to a hard floor of 1.
-    if len(r.projects) > 1:
-        return r, f"dropped project '{r.projects.pop().name}'"
-    # 7) Last resort: shave toward a single bullet anywhere.
-    everything: list[ExperienceEntry | ProjectEntry] = [*r.experience, *r.projects]
-    fat = _fattest(everything, 1)
-    if fat is not None:
-        return _shave(fat)
 
     return None
 
