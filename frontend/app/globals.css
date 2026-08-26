@@ -78,9 +78,21 @@ body {
   letter-spacing: -0.01em;
 }
 
-.brand-sub {
+.site-nav {
+  display: flex;
+  gap: 18px;
+  margin-left: auto;
+}
+
+.site-nav a {
   color: var(--muted);
-  font-size: 0.85rem;
+  text-decoration: none;
+  font-size: 0.9rem;
+  font-weight: 500;
+}
+
+.site-nav a:hover {
+  color: var(--text);
 }
 
 main.wrap {
@@ -141,6 +153,45 @@ a {
 .app-card:hover {
   border-color: var(--accent);
   transform: translateY(-1px);
+}
+
+/* Listing cards don't navigate on click (the button/link does), so no hover lift. */
+.app-card.static:hover {
+  border-color: var(--border);
+  transform: none;
+}
+
+.listing-main {
+  display: flex;
+  align-items: center;
+  gap: 14px;
+  min-width: 0;
+}
+
+.score-chip {
+  flex-shrink: 0;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 40px;
+  height: 40px;
+  border-radius: 8px;
+  background: var(--accent-weak);
+  color: var(--accent);
+  font-weight: 700;
+  font-variant-numeric: tabular-nums;
+  font-size: 0.95rem;
+}
+
+.listing-action {
+  flex-shrink: 0;
+}
+
+.btn-link {
+  font-size: 0.9rem;
+  font-weight: 600;
+  text-decoration: none;
+  white-space: nowrap;
 }
 
 .app-card .role {

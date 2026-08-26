@@ -16,7 +16,10 @@ export default function RootLayout({ children }: { children: React.ReactNode }) 
             <Link href="/" className="brand">
               auto-job-applier
             </Link>
-            <span className="brand-sub">applications review</span>
+            <nav className="site-nav">
+              <Link href="/">Listings</Link>
+              <Link href="/applications">Applications</Link>
+            </nav>
           </div>
         </header>
         <main className="wrap">{children}</main>

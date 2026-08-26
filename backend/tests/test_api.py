@@ -44,6 +44,9 @@ class FakeListingsRepo:
     def get(self, listing_id):  # noqa: ANN001
         return self._listings.get(listing_id)
 
+    def list(self, candidate_id, **kw):  # noqa: ANN001
+        return list(self._listings.values())
+
 
 class FakeProfileRepo:
     def get_or_create_default_candidate(self) -> Candidate:
@@ -131,6 +134,18 @@ def test_approve_sets_status() -> None:
 
     resp = client.post(f"/api/applications/{a.id}/approve", json={"submitted": True})
     assert resp.json()["status"] == "submitted"
+
+
+def test_list_listings_flags_existing_drafts() -> None:
+    with_draft = _listing()
+    without_draft = _listing()
+    a = _application(with_draft.id)
+    client = _client(apps=[a], listings=[with_draft, without_draft])
+
+    rows = {r["id"]: r for r in client.get("/api/listings").json()}
+    assert rows[str(with_draft.id)]["application_id"] == str(a.id)
+    assert rows[str(without_draft.id)]["application_id"] is None
+    assert rows[str(with_draft.id)]["company"] == "Acme"
 
 
 def test_generate_missing_listing_404() -> None:

@@ -49,6 +49,18 @@ export type TailoredResume = {
   skills: SkillGroup[];
 };
 
+export type ListingSummary = {
+  id: string;
+  company: string | null;
+  role_title: string | null;
+  location: string | null;
+  domain: string | null;
+  market: string | null;
+  score: number | null;
+  status: string;
+  application_id: string | null; // existing draft for this listing, if any
+};
+
 export type ApplicationSummary = {
   id: string;
   listing_id: string;
@@ -84,6 +96,18 @@ async function request<T>(path: string, init?: RequestInit): Promise<T> {
 }
 
 export const api = {
+  listListings: () => request<ListingSummary[]>("/api/listings"),
+
+  generate: (listing_id: string, opts?: { steer?: string | null; max_pages?: number }) =>
+    request<ApplicationDetail>("/api/generate", {
+      method: "POST",
+      body: JSON.stringify({
+        listing_id,
+        steer: opts?.steer ?? null,
+        max_pages: opts?.max_pages ?? 1,
+      }),
+    }),
+
   listApplications: () => request<ApplicationSummary[]>("/api/applications"),
 
   getApplication: (id: string) => request<ApplicationDetail>(`/api/applications/${id}`),

@@ -11,6 +11,32 @@ from app.generation.resume import TailoredResume
 from app.listings.models import Listing
 
 
+class ListingSummary(BaseModel):
+    id: UUID
+    company: str | None = None
+    role_title: str | None = None
+    location: str | None = None
+    domain: str | None = None
+    market: str | None = None
+    score: int | None = None
+    status: str
+    application_id: UUID | None = None  # existing draft for this listing, if any
+
+    @classmethod
+    def build(cls, listing: Listing, application_id: UUID | None) -> ListingSummary:
+        return cls(
+            id=listing.id,  # type: ignore[arg-type]
+            company=listing.company,
+            role_title=listing.role_title,
+            location=listing.location,
+            domain=listing.domain,
+            market=listing.market,
+            score=listing.score,
+            status=str(listing.status),
+            application_id=application_id,
+        )
+
+
 class ApplicationSummary(BaseModel):
     id: UUID
     listing_id: UUID

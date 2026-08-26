@@ -19,6 +19,7 @@ from app.api.schemas import (
     ApplicationSummary,
     ApproveRequest,
     GenerateRequest,
+    ListingSummary,
     RegenerateRequest,
 )
 from app.generation.models import Application, ApplicationStatus
@@ -47,6 +48,23 @@ def _load(app_id: UUID, gen: GenerationRepository) -> Application:
 @app.get("/api/health")
 def health() -> dict[str, str]:
     return {"status": "ok"}
+
+
+@app.get("/api/listings", response_model=list[ListingSummary])
+def list_listings(
+    gen: GenerationRepository = Depends(get_gen_repo),
+    listings: ListingRepository = Depends(get_listings_repo),
+    profiles: ProfileRepository = Depends(get_profile_repo),
+) -> list[ListingSummary]:
+    candidate = profiles.get_or_create_default_candidate()
+    assert candidate.id is not None
+    # One query for the candidate's applications; map listing_id -> application id
+    # so each listing can show "generate" vs. "view draft".
+    apps_by_listing = {a.listing_id: a.id for a in gen.list_applications(candidate.id)}
+    return [
+        ListingSummary.build(lst, apps_by_listing.get(lst.id) if lst.id else None)
+        for lst in listings.list(candidate.id)
+    ]
 
 
 @app.get("/api/applications", response_model=list[ApplicationSummary])
