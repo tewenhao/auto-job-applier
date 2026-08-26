@@ -73,6 +73,7 @@ export type ApplicationDetail = ApplicationSummary & {
   cover_letter: string | null;
   resume: TailoredResume | null;
   resume_pdf_available: boolean;
+  cover_letter_pdf_available: boolean;
   steer: string | null;
 };
 
@@ -142,6 +143,8 @@ export const api = {
     }),
 
   resumePdfUrl: (id: string) => `${API_BASE}/api/applications/${id}/resume.pdf`,
+
+  coverLetterPdfUrl: (id: string) => `${API_BASE}/api/applications/${id}/cover_letter.pdf`,
 
   getPreferences: () => request<Preferences>("/api/preferences"),
 

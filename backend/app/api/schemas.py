@@ -64,14 +64,18 @@ class ApplicationDetail(BaseModel):
     cover_letter: str | None = None
     resume: TailoredResume | None = None  # includes the ranking
     resume_pdf_available: bool = False
+    cover_letter_pdf_available: bool = False
     steer: str | None = None  # the standing/per-application steer last used
 
     @classmethod
     def build(cls, app: Application, listing: Listing | None) -> ApplicationDetail:
         from pathlib import Path
 
+        from app.api.service import COVER_LETTER_PDF_KEY
+
         resume = TailoredResume.model_validate(app.resume_content) if app.resume_content else None
         pdf = app.resume_pdf_path
+        cl_pdf = app.meta.get(COVER_LETTER_PDF_KEY)
         return cls(
             id=app.id,  # type: ignore[arg-type]
             listing_id=app.listing_id,
@@ -81,6 +85,7 @@ class ApplicationDetail(BaseModel):
             cover_letter=app.cover_letter,
             resume=resume,
             resume_pdf_available=bool(pdf and Path(pdf).exists()),
+            cover_letter_pdf_available=bool(cl_pdf and Path(cl_pdf).exists()),
             steer=app.meta.get("steer"),
         )
 

@@ -11,38 +11,52 @@ from __future__ import annotations
 from pathlib import Path
 from uuid import UUID
 
+from app.generation.cover_letter_latex import compile_cover_letter
 from app.generation.latex import compile_to_page_limit
 from app.generation.models import Application
 from app.generation.pipeline import generate_application
 from app.generation.repository import GenerationRepository
 from app.generation.resume import TailoredResume
+from app.listings.repository import ListingRepository
 from app.profile.repository import ProfileRepository
 
 # The API compiles into a stable per-application directory so the dashboard can
 # always find the current PDF.
 API_OUT = Path("out/api")
 
+# meta key holding the compiled cover-letter PDF path (Application has dedicated
+# columns for the resume, but not the cover letter — reuse the meta jsonb).
+COVER_LETTER_PDF_KEY = "cover_letter_pdf_path"
+
 
 def _compile_and_store(app: Application, *, max_pages: int) -> Application:
-    """Render the stored resume, compile it (if a toolchain exists), and persist
-    the possibly-trimmed result + PDF path."""
-    if not app.resume_content:
-        return app
-    resume = TailoredResume.model_validate(app.resume_content)
+    """Render + compile the stored resume and cover letter (if a toolchain
+    exists) and persist the results — the possibly-trimmed resume + its PDF path,
+    and the cover-letter PDF path (in meta)."""
     candidate = ProfileRepository().get_candidate(app.candidate_id)
     if candidate is None:
         return app
 
     dest = API_OUT / str(app.id)
     dest.mkdir(parents=True, exist_ok=True)
-    result = compile_to_page_limit(resume, candidate, dest / "resume.tex", max_pages=max_pages)
 
-    app.resume_tex = result.tex
-    app.resume_content = result.resume.model_dump(mode="json")
-    if result.pdf_path is not None:
-        app.resume_pdf_path = str(result.pdf_path)
+    if app.resume_content:
+        resume = TailoredResume.model_validate(app.resume_content)
+        result = compile_to_page_limit(resume, candidate, dest / "resume.tex", max_pages=max_pages)
+        app.resume_tex = result.tex
+        app.resume_content = result.resume.model_dump(mode="json")
+        if result.pdf_path is not None:
+            app.resume_pdf_path = str(result.pdf_path)
+
     if app.cover_letter:
         (dest / "cover_letter.txt").write_text(app.cover_letter)
+        listing = ListingRepository().get(app.listing_id)
+        _, cl_pdf = compile_cover_letter(
+            app.cover_letter, candidate, listing, dest / "cover_letter.tex"
+        )
+        if cl_pdf is not None:
+            app.meta = {**app.meta, COVER_LETTER_PDF_KEY: str(cl_pdf)}
+
     return GenerationRepository().upsert_application(app)
 
 
@@ -79,10 +93,26 @@ def generate_new(listing_id: UUID, *, steer: str | None, max_pages: int) -> Appl
 
 
 def ensure_pdf(app: Application) -> Path | None:
-    """Return the compiled PDF path, compiling on demand if needed."""
+    """Return the compiled resume PDF path, compiling on demand if needed."""
     if app.resume_pdf_path and Path(app.resume_pdf_path).exists():
         return Path(app.resume_pdf_path)
     app = _compile_and_store(app, max_pages=1)
     if app.resume_pdf_path and Path(app.resume_pdf_path).exists():
         return Path(app.resume_pdf_path)
     return None
+
+
+def cover_letter_pdf_path(app: Application) -> Path | None:
+    """The stored cover-letter PDF path if it exists on disk, else None."""
+    stored = app.meta.get(COVER_LETTER_PDF_KEY)
+    return Path(stored) if stored and Path(stored).exists() else None
+
+
+def ensure_cover_letter_pdf(app: Application) -> Path | None:
+    """Return the compiled cover-letter PDF path, compiling on demand if needed."""
+    existing = cover_letter_pdf_path(app)
+    if existing is not None:
+        return existing
+    if not app.cover_letter:
+        return None
+    return cover_letter_pdf_path(_compile_and_store(app, max_pages=1))

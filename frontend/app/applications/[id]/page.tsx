@@ -234,6 +234,13 @@ export default function ApplicationPage({ params }: { params: Promise<{ id: stri
       {/* ---- cover letter ---- */}
       <h2>Cover letter</h2>
       <section className="panel">
+        {app.cover_letter_pdf_available && (
+          <p style={{ marginTop: 0 }}>
+            <a href={api.coverLetterPdfUrl(app.id)} target="_blank" rel="noreferrer">
+              Open compiled PDF ↗
+            </a>
+          </p>
+        )}
         {app.cover_letter ? (
           <pre className="cover-letter">{app.cover_letter}</pre>
         ) : (

@@ -660,8 +660,9 @@ def generate(
     """Generate a tailored resume + cover letter for a listing.
 
     Researches the company, tailors the resume into the LaTeX template, writes
-    the cover letter, and saves ``resume.tex`` / ``cover_letter.txt`` (and a PDF
-    if ``latexmk``/``pdflatex`` is installed) under ``<out-dir>/<company>-<timestamp>/``.
+    the cover letter, and saves ``resume.tex`` / ``cover_letter.tex`` /
+    ``cover_letter.txt`` (and PDFs if ``latexmk``/``pdflatex`` is installed)
+    under ``<out-dir>/<company>-<timestamp>/``.
     When a compiler is present, the resume is compiled, its page count measured,
     and the least-relevant content trimmed until it fits ``--max-pages``.
 
@@ -690,6 +691,17 @@ def generate(
     dest.mkdir(parents=True, exist_ok=True)
     if application.cover_letter:
         (dest / "cover_letter.txt").write_text(application.cover_letter)
+        candidate = ProfileRepository().get_candidate(application.candidate_id)
+        if pdf and candidate is not None:
+            from app.generation.cover_letter_latex import compile_cover_letter
+
+            _, cl_pdf = compile_cover_letter(
+                application.cover_letter, candidate, listing, dest / "cover_letter.tex"
+            )
+            typer.echo(
+                f"  cover letter: {dest / 'cover_letter.tex'}"
+                + (f" -> {cl_pdf}" if cl_pdf else " (not compiled: no LaTeX toolchain)")
+            )
 
     typer.secho(
         f"Draft saved (application {application.id}) -> {dest}/", fg=typer.colors.GREEN, bold=True

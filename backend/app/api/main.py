@@ -201,3 +201,18 @@ def resume_pdf(
             status_code=404, detail="No PDF (no LaTeX toolchain, or resume not generated)"
         )
     return FileResponse(pdf, media_type="application/pdf", filename="resume.pdf")
+
+
+@app.get("/api/applications/{app_id}/cover_letter.pdf")
+def cover_letter_pdf(
+    app_id: UUID,
+    gen: GenerationRepository = Depends(get_gen_repo),
+) -> FileResponse:
+    application = _load(app_id, gen)
+    pdf = service.ensure_cover_letter_pdf(application)
+    if pdf is None:
+        raise HTTPException(
+            status_code=404,
+            detail="No PDF (no LaTeX toolchain, or no cover letter generated)",
+        )
+    return FileResponse(pdf, media_type="application/pdf", filename="cover_letter.pdf")

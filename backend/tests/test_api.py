@@ -203,6 +203,34 @@ def test_save_resume_404(monkeypatch) -> None:  # noqa: ANN001
     assert resp.status_code == 404
 
 
+def test_cover_letter_pdf_served(monkeypatch, tmp_path) -> None:  # noqa: ANN001
+    from app.api import service
+
+    listing = _listing()
+    a = _application(listing.id)
+    pdf = tmp_path / "cl.pdf"
+    pdf.write_bytes(b"%PDF-1.5\n...")
+
+    monkeypatch.setattr(service, "ensure_cover_letter_pdf", lambda app: pdf)
+    client = _client(apps=[a], listings=[listing])
+
+    resp = client.get(f"/api/applications/{a.id}/cover_letter.pdf")
+    assert resp.status_code == 200
+    assert resp.headers["content-type"] == "application/pdf"
+
+
+def test_cover_letter_pdf_404_when_none(monkeypatch) -> None:  # noqa: ANN001
+    from app.api import service
+
+    listing = _listing()
+    a = _application(listing.id)
+    monkeypatch.setattr(service, "ensure_cover_letter_pdf", lambda app: None)
+    client = _client(apps=[a], listings=[listing])
+
+    resp = client.get(f"/api/applications/{a.id}/cover_letter.pdf")
+    assert resp.status_code == 404
+
+
 def test_preferences_round_trip() -> None:
     client = _client(apps=[], listings=[])
 
