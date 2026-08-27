@@ -73,6 +73,30 @@ def save_resume(application_id: UUID, resume: TailoredResume, *, max_pages: int)
     return _compile_and_store(existing, max_pages=max_pages)
 
 
+def save_cover_letter(application_id: UUID, text: str) -> Application:
+    """Persist a hand-edited cover letter and re-render its PDF — no LLM, and
+    only the cover letter (the resume is left untouched)."""
+    gen = GenerationRepository()
+    existing = gen.get_application(application_id)
+    if existing is None:
+        raise KeyError(application_id)
+
+    cleaned = text.strip()
+    existing.cover_letter = cleaned or None
+    candidate = ProfileRepository().get_candidate(existing.candidate_id)
+    meta = {k: v for k, v in existing.meta.items() if k != COVER_LETTER_PDF_KEY}
+    if cleaned and candidate is not None:
+        dest = API_OUT / str(existing.id)
+        dest.mkdir(parents=True, exist_ok=True)
+        (dest / "cover_letter.txt").write_text(cleaned)
+        listing = ListingRepository().get(existing.listing_id)
+        _, cl_pdf = compile_cover_letter(cleaned, candidate, listing, dest / "cover_letter.tex")
+        if cl_pdf is not None:
+            meta[COVER_LETTER_PDF_KEY] = str(cl_pdf)
+    existing.meta = meta
+    return gen.upsert_application(existing)
+
+
 def regenerate(
     application_id: UUID, *, steer: str | None, refresh_company: bool, max_pages: int
 ) -> Application:

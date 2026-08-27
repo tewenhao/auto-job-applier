@@ -203,6 +203,40 @@ def test_save_resume_404(monkeypatch) -> None:  # noqa: ANN001
     assert resp.status_code == 404
 
 
+def test_save_cover_letter_persists_edit(monkeypatch) -> None:  # noqa: ANN001
+    from app.api import service
+
+    listing = _listing()
+    a = _application(listing.id)
+
+    def fake_save(app_id, text):  # noqa: ANN001, ANN202
+        assert app_id == a.id
+        a.cover_letter = text
+        return a
+
+    monkeypatch.setattr(service, "save_cover_letter", fake_save)
+    client = _client(apps=[a], listings=[listing])
+
+    resp = client.put(
+        f"/api/applications/{a.id}/cover_letter",
+        json={"cover_letter": "Dear Acme,\n\nEdited body.\n\nBest wishes,\nEn Hao Tew"},
+    )
+    assert resp.status_code == 200
+    assert "Edited body." in resp.json()["cover_letter"]
+
+
+def test_save_cover_letter_404(monkeypatch) -> None:  # noqa: ANN001
+    from app.api import service
+
+    def fake_save(app_id, text):  # noqa: ANN001, ANN202
+        raise KeyError(app_id)
+
+    monkeypatch.setattr(service, "save_cover_letter", fake_save)
+    client = _client(apps=[], listings=[])
+    resp = client.put(f"/api/applications/{uuid4()}/cover_letter", json={"cover_letter": "hi"})
+    assert resp.status_code == 404
+
+
 def test_cover_letter_pdf_served(monkeypatch, tmp_path) -> None:  # noqa: ANN001
     from app.api import service
 

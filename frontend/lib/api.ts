@@ -142,6 +142,12 @@ export const api = {
       body: JSON.stringify({ resume, max_pages }),
     }),
 
+  saveCoverLetter: (id: string, cover_letter: string) =>
+    request<ApplicationDetail>(`/api/applications/${id}/cover_letter`, {
+      method: "PUT",
+      body: JSON.stringify({ cover_letter }),
+    }),
+
   resumePdfUrl: (id: string) => `${API_BASE}/api/applications/${id}/resume.pdf`,
 
   coverLetterPdfUrl: (id: string) => `${API_BASE}/api/applications/${id}/cover_letter.pdf`,

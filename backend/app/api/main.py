@@ -18,6 +18,7 @@ from app.api.schemas import (
     ApplicationDetail,
     ApplicationSummary,
     ApproveRequest,
+    CoverLetterUpdate,
     GenerateRequest,
     ListingSummary,
     Preferences,
@@ -170,6 +171,20 @@ def save_resume(
     # Deterministic: persist the hand-edited resume and re-render (no LLM).
     try:
         saved = service.save_resume(app_id, body.resume, max_pages=body.max_pages)
+    except KeyError as exc:
+        raise HTTPException(status_code=404, detail="No application with that id") from exc
+    return ApplicationDetail.build(saved, listings.get(saved.listing_id))
+
+
+@app.put("/api/applications/{app_id}/cover_letter", response_model=ApplicationDetail)
+def save_cover_letter(
+    app_id: UUID,
+    body: CoverLetterUpdate,
+    listings: ListingRepository = Depends(get_listings_repo),
+) -> ApplicationDetail:
+    # Deterministic: persist the hand-edited cover letter and re-render (no LLM).
+    try:
+        saved = service.save_cover_letter(app_id, body.cover_letter)
     except KeyError as exc:
         raise HTTPException(status_code=404, detail="No application with that id") from exc
     return ApplicationDetail.build(saved, listings.get(saved.listing_id))

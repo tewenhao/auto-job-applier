@@ -105,6 +105,10 @@ class ResumeUpdate(BaseModel):
     max_pages: int = Field(default=1, ge=1, le=3)
 
 
+class CoverLetterUpdate(BaseModel):
+    cover_letter: str  # the hand-edited cover-letter text to persist and re-render
+
+
 class GenerateRequest(BaseModel):
     listing_id: UUID
     steer: str | None = None

@@ -13,6 +13,9 @@ export default function ApplicationPage({ params }: { params: Promise<{ id: stri
   const [steer, setSteer] = useState("");
   const [busy, setBusy] = useState<null | "regenerate" | "approve" | "submit">(null);
   const [editing, setEditing] = useState(false);
+  const [editingCover, setEditingCover] = useState(false);
+  const [coverDraft, setCoverDraft] = useState("");
+  const [savingCover, setSavingCover] = useState(false);
 
   useEffect(() => {
     api
@@ -35,6 +38,20 @@ export default function ApplicationPage({ params }: { params: Promise<{ id: stri
       setError(String((e as Error).message ?? e));
     } finally {
       setBusy(null);
+    }
+  }
+
+  async function saveCover() {
+    setSavingCover(true);
+    setError(null);
+    try {
+      const updated = await api.saveCoverLetter(id, coverDraft);
+      setApp(updated);
+      setEditingCover(false);
+    } catch (e) {
+      setError(String((e as Error).message ?? e));
+    } finally {
+      setSavingCover(false);
     }
   }
 
@@ -232,19 +249,58 @@ export default function ApplicationPage({ params }: { params: Promise<{ id: stri
       </section>
 
       {/* ---- cover letter ---- */}
-      <h2>Cover letter</h2>
-      <section className="panel">
-        {app.cover_letter_pdf_available && (
-          <p style={{ marginTop: 0 }}>
-            <a href={api.coverLetterPdfUrl(app.id)} target="_blank" rel="noreferrer">
-              Open compiled PDF ↗
-            </a>
-          </p>
+      <div className="detail-head" style={{ marginTop: 28, marginBottom: 8 }}>
+        <h2 style={{ margin: 0 }}>Cover letter</h2>
+        {!editingCover && (
+          <button
+            className="mini"
+            disabled={anyBusy}
+            onClick={() => {
+              setCoverDraft(app.cover_letter ?? "");
+              setEditingCover(true);
+            }}
+          >
+            Edit
+          </button>
         )}
-        {app.cover_letter ? (
-          <pre className="cover-letter">{app.cover_letter}</pre>
+      </div>
+      <section className="panel">
+        {editingCover ? (
+          <div className="steer">
+            <p className="muted" style={{ marginTop: 0, fontSize: "0.88rem" }}>
+              Edit the letter directly. Saving re-renders the PDF from exactly what you write (no
+              model call).
+            </p>
+            <textarea
+              value={coverDraft}
+              onChange={(e) => setCoverDraft(e.target.value)}
+              disabled={savingCover}
+              style={{ minHeight: 320, fontFamily: "ui-monospace, Menlo, Consolas, monospace" }}
+            />
+            <div className="actions">
+              <button className="primary" disabled={savingCover} onClick={saveCover}>
+                {savingCover ? "Saving & re-rendering…" : "Save & re-render"}
+              </button>
+              <button disabled={savingCover} onClick={() => setEditingCover(false)}>
+                Cancel
+              </button>
+            </div>
+          </div>
         ) : (
-          <p className="muted">No cover letter generated.</p>
+          <>
+            {app.cover_letter_pdf_available && (
+              <p style={{ marginTop: 0 }}>
+                <a href={api.coverLetterPdfUrl(app.id)} target="_blank" rel="noreferrer">
+                  Open compiled PDF ↗
+                </a>
+              </p>
+            )}
+            {app.cover_letter ? (
+              <pre className="cover-letter">{app.cover_letter}</pre>
+            ) : (
+              <p className="muted">No cover letter generated.</p>
+            )}
+          </>
         )}
       </section>
     </div>
