@@ -95,7 +95,7 @@ class ListingIngestor:
         fetched = fetch_job(url)
         parsed = parse_listing(self.llm, fetched)
 
-        if not fetched.from_api and not parsed.is_job_posting:
+        if not fetched.from_api and not fetched.single_posting and not parsed.is_job_posting:
             expanded = enumerate_index_page(url, fetched.raw_html or "")
             results: list[Listing] = []
             for job in expanded:
@@ -152,7 +152,7 @@ class ListingIngestor:
         # Only gate on the careers-index heuristic for scraped HTML — a job
         # fetched via a structured API (Greenhouse/Lever/Workday) is always a
         # single posting, so never reject it on the parser's guess.
-        if not fetched.from_api and not parsed.is_job_posting:
+        if not fetched.from_api and not fetched.single_posting and not parsed.is_job_posting:
             raise FetchError(
                 f"{url or 'This text'} looks like a careers index / landing page listing "
                 "many roles, not one posting. Open a specific job and pass that URL."

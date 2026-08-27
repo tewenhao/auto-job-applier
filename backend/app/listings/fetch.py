@@ -37,6 +37,7 @@ class FetchedJob(BaseModel):
     jd_text: str | None = None
     posted_at: date | None = None
     from_api: bool = False  # fetched via a structured single-job API (not scraped HTML)
+    single_posting: bool = False  # URL shape identifies exactly one posting
     raw_html: str | None = None  # scraped page HTML, kept for ATS sniffing (e.g. Phenom)
 
 
@@ -157,6 +158,22 @@ def build_from_workday(payload: dict[str, Any], *, url: str | None = None) -> Fe
     )
 
 
+def is_single_posting_url(url: str) -> bool:
+    """Whether the URL's shape identifies exactly one posting.
+
+    Some ATS pages render "related roles" alongside the job, which can make the
+    careers-index heuristic reject a perfectly good single posting (e.g. a
+    Workday job whose tenant blocks the JSON API, so we fall back to scraping).
+    The URL shape is proof the heuristic should not override.
+    """
+    if parse_workday_url(url) or parse_lever_url(url):
+        return True
+    if parse_greenhouse_url(url) or _greenhouse_embed(url):
+        return True
+    # Oracle HCM single-requisition page
+    return bool(re.search(r"/hcmUI/CandidateExperience/[^/]+/sites/[^/]+/job/", url))
+
+
 def fetch_job(url: str) -> FetchedJob:
     """Fetch and normalize a posting from a URL (network I/O)."""
     ats = detect_ats(url)
@@ -224,6 +241,7 @@ def fetch_job(url: str) -> FetchedJob:
         role_title=meta.get("title"),
         jd_text=text,
         raw_html=raw,
+        single_posting=is_single_posting_url(url),
     )
 
 

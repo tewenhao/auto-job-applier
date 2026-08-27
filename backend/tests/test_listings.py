@@ -350,6 +350,25 @@ def test_eightfold_domain_derivation() -> None:
     assert _eightfold_domain("anything.com", "domain=given.com") == "given.com"
 
 
+def test_is_single_posting_url_distinguishes_jobs_from_boards() -> None:
+    """A URL whose shape names one posting must not be vetoed by the
+    careers-index heuristic (some ATS pages render 'related roles')."""
+    from app.listings.fetch import is_single_posting_url as single
+
+    assert single(
+        "https://ciena.wd5.myworkdayjobs.com/en-US/Careers/job/SWE-Intern_R031332"
+    )
+    assert single("https://job-boards.greenhouse.io/quadraturecapital/jobs/4255974")
+    assert single("https://jobs.lever.co/acme/0a1b2c3d-4e5f-6789-abcd-ef0123456789")
+    assert single("https://x.oraclecloud.com/hcmUI/CandidateExperience/en/sites/S/job/81318")
+
+    assert not single("https://ciena.wd5.myworkdayjobs.com/en-US/Careers")
+    assert not single("https://job-boards.greenhouse.io/embed/job_board?for=jump&keyword=x")
+    assert not single("https://jobs.lever.co/palantir?commitment=Internship")
+    assert not single("https://x.oraclecloud.com/hcmUI/CandidateExperience/en/sites/S/jobs?k=e")
+    assert not single("https://www.janestreet.com/join-jane-street/open-roles/")
+
+
 # --- ATS detection + URL parsing ---
 def test_detect_ats() -> None:
     assert detect_ats("https://boards.greenhouse.io/acme/jobs/123") == "greenhouse"
