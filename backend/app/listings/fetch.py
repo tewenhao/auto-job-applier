@@ -17,6 +17,8 @@ from urllib.parse import parse_qs, urlparse
 import httpx
 from pydantic import BaseModel
 
+from app.config import get_settings
+
 # A browser UA: some ATS hosts (notably Workday) reject non-browser agents.
 USER_AGENT = (
     "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 "
@@ -188,9 +190,24 @@ def fetch_job(url: str) -> FetchedJob:
         except (httpx.HTTPError, ValueError):
             pass  # fall through to the generic HTML path below
 
-    raw = _get_html(url)
-    text = html_to_text(raw)
+    raw: str | None = None
+    try:
+        raw = _get_html(url)
+    except httpx.HTTPStatusError as exc:
+        # Anti-bot blocks (403/401/429) — let the browser fallback try instead.
+        if exc.response.status_code not in (401, 403, 429):
+            raise
+    text = html_to_text(raw) if raw else ""
+
+    # Headless-browser fallback for JS shells and blocked pages (Workday whose
+    # JSON path failed, IBM, arcticlake, Cloudflare 403s, ...).
     if len(text) < MIN_USABLE_CHARS:
+        rendered = _render_with_browser(url)
+        if rendered and len(html_to_text(rendered)) >= MIN_USABLE_CHARS:
+            raw = rendered
+            text = html_to_text(rendered)
+
+    if not raw or len(text) < MIN_USABLE_CHARS:
         raise FetchError(
             f"Fetched too little text from {url} (likely a JavaScript-rendered page). "
             "Copy the job description and pass it as text instead of a URL."
@@ -254,6 +271,19 @@ def _get_json(url: str) -> dict[str, Any]:
         resp = client.get(url, follow_redirects=True)
         resp.raise_for_status()
         return resp.json()  # type: ignore[no-any-return]
+
+
+def _render_with_browser(url: str) -> str | None:
+    """Render ``url`` in a headless browser if enabled + available, else None."""
+    try:
+        settings = get_settings()
+    except Exception:
+        return None
+    if not settings.browser_fallback:
+        return None
+    from app.listings.browser import render_page
+
+    return render_page(url, executable_path=settings.browser_executable_path)
 
 
 def _get_html(url: str) -> str:

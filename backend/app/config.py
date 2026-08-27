@@ -75,6 +75,16 @@ class Settings(BaseSettings):
     listing_score_threshold: int = Field(
         60, description="Listings scoring at/above this (0-100) are surfaced."
     )
+    browser_fallback: bool = Field(
+        True,
+        description="Render JS/blocked postings with a headless browser when the "
+        "plain HTTP fetch comes up empty (needs the 'browser' extra + chromium).",
+    )
+    browser_executable_path: str = Field(
+        "",
+        description="Optional chromium path for Playwright (e.g. a preinstalled "
+        "build); empty uses Playwright's managed browser.",
+    )
 
     def model_for(self, task: Task) -> str:
         """Return the configured model id for a given task."""

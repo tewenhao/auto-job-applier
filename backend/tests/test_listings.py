@@ -5,6 +5,8 @@ from __future__ import annotations
 from datetime import date
 from uuid import uuid4
 
+import pytest
+
 from app.listings.fetch import (
     _clean_title,
     _extract_head_meta,
@@ -46,6 +48,50 @@ def test_extract_head_meta_falls_back_to_title_tag() -> None:
 def test_clean_title_keeps_hyphenated_roles() -> None:
     assert _clean_title("Backend Engineer - Payments") == "Backend Engineer - Payments"
     assert _clean_title("Data Analyst | Careers") == "Data Analyst"
+
+
+# --- headless-browser fallback wiring ---
+_JS_SHELL = "<html><body><div id=app></div></body></html>"  # too little text
+_RENDERED = (
+    "<html><head><title>SWE Intern | Acme</title></head><body>"
+    "<h1>Software Engineer Intern</h1><p>" + "Build systems in C++ and Python. " * 20
+    + "</p></body></html>"
+)
+
+
+def test_fetch_job_browser_fallback_on_js_shell(monkeypatch) -> None:  # noqa: ANN001
+    import app.listings.fetch as f
+
+    monkeypatch.setattr(f, "_get_html", lambda url: _JS_SHELL)
+    monkeypatch.setattr(f, "_render_with_browser", lambda url: _RENDERED)
+    job = f.fetch_job("https://careers.example.com/job/1")
+    assert job.role_title == "SWE Intern"
+    assert "Build systems in C++" in (job.jd_text or "")
+
+
+def test_fetch_job_browser_fallback_on_403(monkeypatch) -> None:  # noqa: ANN001
+    import httpx
+
+    import app.listings.fetch as f
+
+    def _raise_403(url):  # noqa: ANN001, ANN202
+        resp = httpx.Response(403, request=httpx.Request("GET", url))
+        raise httpx.HTTPStatusError("403", request=resp.request, response=resp)
+
+    monkeypatch.setattr(f, "_get_html", _raise_403)
+    monkeypatch.setattr(f, "_render_with_browser", lambda url: _RENDERED)
+    job = f.fetch_job("https://www.citadel.com/careers/details/x")
+    assert "Build systems in C++" in (job.jd_text or "")
+
+
+def test_fetch_job_raises_when_browser_unavailable(monkeypatch) -> None:  # noqa: ANN001
+    import app.listings.fetch as f
+    from app.listings.fetch import FetchError
+
+    monkeypatch.setattr(f, "_get_html", lambda url: _JS_SHELL)
+    monkeypatch.setattr(f, "_render_with_browser", lambda url: None)
+    with pytest.raises(FetchError):
+        f.fetch_job("https://careers.example.com/job/1")
 
 
 # --- ATS detection + URL parsing ---

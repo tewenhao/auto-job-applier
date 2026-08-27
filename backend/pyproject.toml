@@ -17,6 +17,11 @@ dependencies = [
     "uvicorn>=0.30",
 ]
 
+[project.optional-dependencies]
+# Headless-browser fallback for JS-rendered postings (Workday, IBM, etc.).
+# Install with `uv sync --extra browser`, then `uv run playwright install chromium`.
+browser = ["playwright>=1.40"]
+
 [project.scripts]
 ajp = "app.cli:app"
 
