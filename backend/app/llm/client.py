@@ -7,6 +7,8 @@ ids. Exposes ``.raw`` for advanced use (streaming, tool use) in later modules.
 
 from __future__ import annotations
 
+import time
+from collections.abc import Callable
 from typing import Any, TypeVar
 
 import anthropic
@@ -17,6 +19,19 @@ from app.config import Settings, Task, get_settings
 
 # Default kept under the SDK's non-streaming HTTP timeout; callers can override.
 DEFAULT_MAX_TOKENS = 16000
+
+# The API occasionally returns a generic 400 "Invalid request data" for a
+# request that is well-formed — a byte-identical retry succeeds. The SDK retries
+# 429s and 5xx but never 4xx, so one flake would surface as a hard failure.
+# Only this exact signature is retried: a real malformed request (an unsupported
+# parameter, a bad message sequence) names what is wrong and must surface at once.
+_TRANSIENT_BAD_REQUEST = "invalid request data"
+_TRANSIENT_RETRIES = 3
+
+
+def _is_transient(exc: anthropic.BadRequestError) -> bool:
+    return _TRANSIENT_BAD_REQUEST in str(exc).lower()
+
 
 T = TypeVar("T", bound=BaseModel)
 
@@ -58,8 +73,19 @@ class LLMClient:
         if system is not None:
             params["system"] = system
 
-        response = self._client.messages.create(**params)
+        response = self._retrying(lambda: self._client.messages.create(**params))
         return "".join(block.text for block in response.content if block.type == "text")
+
+    def _retrying(self, call: Callable[[], Any]) -> Any:
+        """Run ``call``, retrying the API's transient generic 400."""
+        for attempt in range(_TRANSIENT_RETRIES):
+            try:
+                return call()
+            except anthropic.BadRequestError as exc:
+                if not _is_transient(exc) or attempt == _TRANSIENT_RETRIES - 1:
+                    raise
+                time.sleep(0.5 * (attempt + 1))
+        raise AssertionError("unreachable")
 
     def parse(
         self,
@@ -88,7 +114,7 @@ class LLMClient:
             params["system"] = system
 
         try:
-            response = self._client.messages.parse(**params)
+            response = self._retrying(lambda: self._client.messages.parse(**params))
         except pydantic.ValidationError as exc:
             # A truncated response (model hit max_tokens, thinking included)
             # surfaces as invalid/incomplete JSON. Turn the cryptic parser error

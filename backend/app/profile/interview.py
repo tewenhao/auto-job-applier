@@ -93,15 +93,24 @@ _DRAFT_SYSTEM = (
 
 
 def _messages(transcript: list[dict[str, Any]]) -> list[dict[str, Any]]:
-    """Interview turns as an Anthropic message list."""
-    return [
-        {
-            "role": "assistant" if t.get("role") == "assistant" else "user",
-            "content": str(t.get("content", "")),
-        }
-        for t in transcript
-        if str(t.get("content", "")).strip()
-    ]
+    """Interview turns as an Anthropic message list.
+
+    Roles must alternate, but a stored transcript can hold two turns in a row:
+    if the model call fails after the answer is saved, no question follows it,
+    and the next answer lands beside the first. Consecutive turns are merged
+    rather than dropped, so nothing the candidate wrote is lost.
+    """
+    merged: list[dict[str, Any]] = []
+    for turn in transcript:
+        content = str(turn.get("content", "")).strip()
+        if not content:
+            continue
+        role = "assistant" if turn.get("role") == "assistant" else "user"
+        if merged and merged[-1]["role"] == role:
+            merged[-1]["content"] = f"{merged[-1]['content']}\n\n{content}"
+        else:
+            merged.append({"role": role, "content": content})
+    return merged
 
 
 def next_step(
@@ -125,10 +134,12 @@ def next_step(
         if profile_markdown
         else ""
     )
-    messages = [
-        {"role": "user", "content": f"{context}Interview me about the new entry."},
-        *messages,
-    ]
+    messages = _messages(
+        [
+            {"role": "user", "content": f"{context}Interview me about the new entry."},
+            *messages,
+        ]
+    )
     if messages[-1]["role"] == "assistant":
         # The API requires the conversation to end with a user turn, and a
         # transcript ends on a question whenever the last one went unanswered
@@ -147,7 +158,11 @@ def next_step(
         system=_INTERVIEW_SYSTEM,
         messages=messages,
         output_format=InterviewStep,
-        max_tokens=4000,
+        # Generous ceiling: the interview model thinks before answering and that
+        # budget counts against max_tokens. Too low and the API rejects the
+        # request outright ("Invalid request data"); a little higher and the
+        # thinking is truncated mid-JSON. The reply itself is one question.
+        max_tokens=16000,
     )
     if not step.ready and not (step.question or "").strip():
         # Neither a question nor a ready signal would stall the interview.
@@ -167,7 +182,7 @@ def draft_entry(llm: LLMClient, transcript: list[dict[str, Any]]) -> DraftedEntr
         system=_DRAFT_SYSTEM,
         messages=[{"role": "user", "content": f"# Transcript\n{conversation}"}],
         output_format=DraftedEntry,
-        max_tokens=8000,
+        max_tokens=16000,  # thinking + a full entry
     )
 
 

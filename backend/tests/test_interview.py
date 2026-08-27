@@ -56,3 +56,36 @@ def test_opening_turn_needs_no_model_call() -> None:
     step = next_step(llm, [])  # type: ignore[arg-type]
     assert step.question and not step.ready
     assert llm.messages == []  # nothing was sent
+
+
+def test_consecutive_same_role_turns_are_merged() -> None:
+    """A failed model call leaves the answer stored with no question after it,
+    so the next answer lands beside the first. Roles must still alternate."""
+    llm = _FakeLLM(InterviewStep(question="And what was your part?"))
+    transcript = [
+        {"role": "assistant", "content": "What would you like to add?"},
+        {"role": "user", "content": "the auto job applier"},
+        {"role": "assistant", "content": "Tell me the basics."},
+        {"role": "user", "content": "personal project"},
+        {"role": "user", "content": "hi continue pls"},  # model call failed before this
+    ]
+    next_step(llm, transcript)  # type: ignore[arg-type]
+
+    roles = [m["role"] for m in llm.messages]
+    assert all(a != b for a, b in zip(roles, roles[1:], strict=False)), roles
+    # nothing the candidate wrote is thrown away
+    joined = " ".join(m["content"] for m in llm.messages)
+    assert "personal project" in joined and "hi continue pls" in joined
+
+
+def test_blank_turns_are_dropped() -> None:
+    llm = _FakeLLM(InterviewStep(ready=True))
+    next_step(  # type: ignore[arg-type]
+        llm,
+        [
+            {"role": "assistant", "content": "Q?"},
+            {"role": "user", "content": "   "},
+            {"role": "user", "content": "a real answer"},
+        ],
+    )
+    assert all(m["content"].strip() for m in llm.messages)
