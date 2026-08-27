@@ -158,11 +158,12 @@ def next_step(
         system=_INTERVIEW_SYSTEM,
         messages=messages,
         output_format=InterviewStep,
-        # Generous ceiling: the interview model thinks before answering and that
-        # budget counts against max_tokens. Too low and the API rejects the
-        # request outright ("Invalid request data"); a little higher and the
-        # thinking is truncated mid-JSON. The reply itself is one question.
         max_tokens=16000,
+        # Choosing the next question is a simple task. At the default effort the
+        # model's thinking consumed the whole budget and truncated its own reply
+        # (and each turn took the best part of a minute); at "low" it answers in
+        # a few seconds.
+        effort="low",
     )
     if not step.ready and not (step.question or "").strip():
         # Neither a question nor a ready signal would stall the interview.
@@ -183,6 +184,9 @@ def draft_entry(llm: LLMClient, transcript: list[dict[str, Any]]) -> DraftedEntr
         messages=[{"role": "user", "content": f"# Transcript\n{conversation}"}],
         output_format=DraftedEntry,
         max_tokens=16000,  # thinking + a full entry
+        # Writing the entry deserves more thought than choosing a question, but
+        # not the default: at "high" the thinking truncated the output.
+        effort="medium",
     )
 
 

@@ -55,6 +55,7 @@ class LLMClient:
         messages: list[dict[str, Any]],
         system: str | None = None,
         max_tokens: int = DEFAULT_MAX_TOKENS,
+        effort: str | None = None,
         **kwargs: Any,
     ) -> str:
         """Send a message for ``task`` and return the response's concatenated text.
@@ -70,6 +71,8 @@ class LLMClient:
             "messages": messages,
             **kwargs,
         }
+        if effort is not None:
+            params["output_config"] = {**params.get("output_config", {}), "effort": effort}
         if system is not None:
             params["system"] = system
 
@@ -95,6 +98,7 @@ class LLMClient:
         output_format: type[T],
         system: str | None = None,
         max_tokens: int = DEFAULT_MAX_TOKENS,
+        effort: str | None = None,
         **kwargs: Any,
     ) -> T:
         """Structured extraction: return a validated instance of ``output_format``.
@@ -110,6 +114,11 @@ class LLMClient:
             "output_format": output_format,
             **kwargs,
         }
+        if effort is not None:
+            # How hard the model thinks before answering. Thinking counts
+            # against max_tokens, so a simple task left at the default can burn
+            # the whole budget and truncate its own output.
+            params["output_config"] = {**params.get("output_config", {}), "effort": effort}
         if system is not None:
             params["system"] = system
 
