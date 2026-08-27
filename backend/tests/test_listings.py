@@ -174,7 +174,15 @@ def test_enumerate_oracle(monkeypatch) -> None:  # noqa: ANN001
 
     def fake_get(url: str):  # noqa: ANN202
         if "recruitingCESites" in url:
-            return {"items": [{"Name": "BNY-Careers", "SiteNumber": "CX_2001"}]}
+            return {
+                "items": [
+                    {
+                        "SiteURLName": "BNY-Careers",
+                        "SiteNumber": "CX_2001",
+                        "StatusCode": "ORA_ACTIVE",
+                    }
+                ]
+            }
         if "recruitingCEJobRequisitionDetails" in url:
             return {"items": [{"ExternalDescriptionStr": "<p>Build systems</p>"}]}
         if "recruitingCEJobRequisitions" in url:
@@ -231,13 +239,88 @@ def test_enumerate_phenom(monkeypatch) -> None:  # noqa: ANN001
         }
 
     monkeypatch.setattr(d, "_post", fake_post)
-    from app.listings.discover import enumerate_phenom_url
+    from app.listings.discover import enumerate_index_page
 
-    jobs = enumerate_phenom_url(
-        "https://careers.sig.com/jobs?keyword=intern", 'x = {"refNum":"SIGGLOBAL"}'
+    jobs = enumerate_index_page(
+        "https://careers.example.com/jobs?keyword=intern",
+        'phenom config: x = {"refNum":"SIGGLOBAL"}',
     )
     assert [j.role_title for j in jobs] == ["Software Engineering Intern"]
     assert jobs[0].location == "London, UK" and jobs[0].from_api is True
+
+
+# --- Eightfold / iCIMS enumeration (index-page ATS sniffing) ---
+def test_enumerate_index_page_eightfold(monkeypatch) -> None:  # noqa: ANN001
+    import app.listings.discover as d
+
+    def fake_get(url: str):  # noqa: ANN202
+        if "/api/apply/v2/jobs/" in url:
+            return {"job_description": "<p>Build models</p>"}
+        assert "domain=mlp.com" in url
+        return {
+            "positions": [
+                {"id": 1, "name": "2027 Quantitative Developer Intern", "location": "London, UK"},
+                {"id": 2, "name": "Head of Sales", "location": "London, UK"},
+            ]
+        }
+
+    monkeypatch.setattr(d, "_get", fake_get)
+    jobs = d.enumerate_index_page(
+        "https://campusjobs.mlp.com/careers?domain=mlp.com&keyword=intern",
+        "<html>powered by eightfold</html>",
+    )
+    assert [j.role_title for j in jobs] == ["2027 Quantitative Developer Intern"]
+    assert jobs[0].from_api is True and "Build models" in (jobs[0].jd_text or "")
+
+
+def test_enumerate_index_page_icims(monkeypatch) -> None:  # noqa: ANN001
+    import app.listings.discover as d
+
+    payload = {
+        "jobs": [
+            {
+                "data": {
+                    "slug": "11362",
+                    "title": "Trading Systems Engineering Internship",
+                    "brand": "Susquehanna International Group, LLP",
+                    "location_name": "SIG",  # a brand alias, not a place
+                    "full_location": "London, United Kingdom",
+                    "description": "<p>Build trading systems</p>",
+                }
+            },
+            {"data": {"slug": "1", "title": "VP Trading", "full_location": "Dublin"}},
+        ]
+    }
+    monkeypatch.setattr(d, "_get", lambda url: payload)
+    jobs = d.enumerate_index_page(
+        "https://careers.sig.com/jobs?keyword=intern", "<html>icims tracker</html>"
+    )
+    assert [j.role_title for j in jobs] == ["Trading Systems Engineering Internship"]
+    # full_location wins over the misleading location_name
+    assert jobs[0].location == "London, United Kingdom"
+    assert jobs[0].company == "Susquehanna International Group, LLP"
+
+
+def test_oracle_site_number_prefers_url_name_and_active(monkeypatch) -> None:  # noqa: ANN001
+    import app.listings.discover as d
+
+    sites = {
+        "items": [
+            {
+                "SiteNumber": "CX_1001",
+                "SiteName": "BNY External Career Site",
+                "StatusCode": "ORA_INACTIVE",
+            },
+            {
+                "SiteNumber": "CX_3001",
+                "SiteName": "BNY",
+                "SiteURLName": "BNY-Careers",
+                "StatusCode": "ORA_ACTIVE",
+            },
+        ]
+    }
+    monkeypatch.setattr(d, "_get", lambda url: sites)
+    assert d._oracle_site_number("h", "BNY-Careers") == "CX_3001"
 
 
 # --- ATS detection + URL parsing ---

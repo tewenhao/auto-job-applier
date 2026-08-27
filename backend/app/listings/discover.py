@@ -30,7 +30,11 @@ MAX_BOARD_RESULTS = 40
 
 class BoardFilters:
     def __init__(
-        self, keywords: list[str], location: str | None, commitment: str | None
+        self,
+        keywords: list[str],
+        location: str | None,
+        commitment: str | None,
+        location_id: str | None = None,
     ) -> None:
         # If the URL carried no filters at all, default to intern-ish roles.
         if not keywords and not location and not commitment:
@@ -38,6 +42,9 @@ class BoardFilters:
         self.keywords = [k.lower() for k in keywords]
         self.location = location.lower() if location else None
         self.commitment = commitment.lower() if commitment else None
+        # Oracle exposes a numeric location facet id in its search URLs; when
+        # present we filter server-side, which is far more precise than text.
+        self.location_id = location_id
 
     def matches(self, job: FetchedJob, *, commitment: str | None = None) -> bool:
         title = (job.role_title or "").lower()
@@ -63,7 +70,10 @@ def _filters_from_query(query: str) -> BoardFilters:
         return values[0].strip('"') if values else None
 
     return BoardFilters(
-        keywords=keywords, location=_first("location"), commitment=_first("commitment")
+        keywords=keywords,
+        location=_first("location"),
+        commitment=_first("commitment"),
+        location_id=_first("locationId"),
     )
 
 
@@ -152,12 +162,22 @@ def _oracle_api(host: str) -> str:
 def _oracle_site_number(host: str, site: str) -> str | None:
     """Map a CE site name (e.g. 'BNY-Careers') to its numeric siteNumber."""
     data = _get(f"{_oracle_api(host)}/recruitingCESites?onlyData=true&expand=all")
-    for item in data.get("items", []):
-        names = {item.get("Name"), item.get("SiteName"), item.get("ExternalPathName")}
-        if site in names:
-            number = item.get("SiteNumber") or item.get("Number")
-            if number:
-                return str(number)
+    items = data.get("items", [])
+    wanted = site.casefold()
+
+    def _number(item: dict[str, Any]) -> str | None:
+        number = item.get("SiteNumber") or item.get("Number")
+        return str(number) if number else None
+
+    # SiteURLName is the segment that appears in the careers URL; it is the only
+    # reliable key (SiteName is a human label, and inactive decoy sites exist).
+    for key in ("SiteURLName", "SiteName", "SiteCode"):
+        matches = [i for i in items if (i.get(key) or "").casefold() == wanted]
+        # Prefer an active site when several share a name.
+        matches.sort(key=lambda i: i.get("StatusCode") != "ORA_ACTIVE")
+        for item in matches:
+            if number := _number(item):
+                return number
     return None
 
 
@@ -165,13 +185,21 @@ def _enumerate_oracle(host: str, site: str, filters: BoardFilters) -> list[Fetch
     site_number = _oracle_site_number(host, site)
     if not site_number:
         return []
-    facets = "LOCATIONS;WORK_LOCATIONS;WORKPLACE_TYPES;TITLES;CATEGORIES;POSTING_DATES"
+    facets = (
+        "LOCATIONS;WORK_LOCATIONS;WORKPLACE_TYPES;TITLES;CATEGORIES;"
+        "ORGANIZATIONS;POSTING_DATES;FLEX_FIELDS"
+    )
     finder = (
         f"findReqs;siteNumber={site_number},facetsList={facets},"
-        f"limit=200,sortBy=POSTING_DATES_DESC"
+        f"limit={MAX_BOARD_RESULTS},sortBy=POSTING_DATES_DESC"
     )
     if filters.keywords:
         finder += f',keyword={" ".join(filters.keywords)}'
+    if filters.location_id:
+        # Numeric facet from the search URL — filters server-side.
+        finder += f",selectedLocationsFacet={filters.location_id}"
+    # NOTE: without ``expand`` the response carries only facet counts, not the
+    # requisitionList itself.
     search = (
         f"{_oracle_api(host)}/recruitingCEJobRequisitions?onlyData=true"
         f"&expand=requisitionList.secondaryLocations,flexFieldsFacet.values"
@@ -228,9 +256,106 @@ def detect_phenom_refnum(html: str) -> str | None:
     return m.group(1) if m else None
 
 
-def enumerate_phenom_url(url: str, html: str) -> list[FetchedJob]:
-    """Enumerate a Phenom site using filters read from the page URL."""
-    return enumerate_phenom(url, html, _filters_from_query(urlparse(url).query))
+def enumerate_index_page(url: str, html: str) -> list[FetchedJob]:
+    """Enumerate an index/search page whose ATS is only identifiable from its
+    rendered HTML (unlike Greenhouse/Lever/Oracle, which are URL-detectable).
+
+    Sniffs the page for a known ATS and calls its public search API. Each of
+    these platforms hosts many employers, so one enumerator serves all of them.
+    """
+    filters = _filters_from_query(urlparse(url).query)
+    blob = (html or "").lower()
+    for marker, fn in (
+        ("phenom", enumerate_phenom),
+        ("eightfold", enumerate_eightfold),
+        ("icims", enumerate_icims),
+    ):
+        if marker in blob:
+            try:
+                found = fn(url, html, filters)
+            except (httpx.HTTPError, ValueError, KeyError):
+                found = []
+            if found:
+                return found
+    return []
+
+
+# --- Eightfold AI (/api/apply/v2/jobs) ---
+def enumerate_eightfold(url: str, html: str, filters: BoardFilters) -> list[FetchedJob]:
+    parts = urlparse(url)
+    host = parts.hostname or ""
+    if not host:
+        return []
+    origin = f"{parts.scheme or 'https'}://{host}"
+    # Eightfold sites carry their tenant as a ?domain= param; otherwise derive it
+    # from the host (campusjobs.mlp.com -> mlp.com).
+    domain = (parse_qs(parts.query).get("domain") or [".".join(host.split(".")[-2:])])[0]
+    query = " ".join(filters.keywords)
+    search = (
+        f"{origin}/api/apply/v2/jobs?domain={domain}&start=0"
+        f"&num={MAX_BOARD_RESULTS}&query={quote(query)}"
+    )
+    if filters.location:
+        search += f"&location={quote(filters.location)}"
+
+    out: list[FetchedJob] = []
+    for pos in _get(search).get("positions") or []:
+        job = FetchedJob(
+            ats="eightfold",
+            from_api=True,
+            url=pos.get("canonicalPositionUrl") or f"{origin}/careers?pid={pos.get('id')}",
+            company=_title(domain.split(".")[0]),
+            role_title=pos.get("name"),
+            location=pos.get("location"),
+        )
+        if not filters.matches(job):
+            continue
+        # The list response omits the description; fetch it per position.
+        job.jd_text = html_to_text(_eightfold_description(origin, domain, pos.get("id")))
+        out.append(job)
+    return out
+
+
+def _eightfold_description(origin: str, domain: str, job_id: Any) -> str:
+    if not job_id:
+        return ""
+    try:
+        data = _get(f"{origin}/api/apply/v2/jobs/{job_id}?domain={domain}")
+    except (httpx.HTTPError, ValueError):
+        return ""
+    return str(data.get("job_description") or "")
+
+
+# --- iCIMS / Attrax career sites (/api/jobs) ---
+def enumerate_icims(url: str, html: str, filters: BoardFilters) -> list[FetchedJob]:
+    parts = urlparse(url)
+    host = parts.hostname or ""
+    if not host:
+        return []
+    origin = f"{parts.scheme or 'https'}://{host}"
+    keyword = " ".join(filters.keywords)
+    data = _get(f"{origin}/api/jobs?keyword={quote(keyword)}&limit={MAX_BOARD_RESULTS}")
+
+    out: list[FetchedJob] = []
+    for entry in data.get("jobs") or []:
+        d = entry.get("data") or {}
+        # NB: 'location_name' is a brand alias (e.g. "SIG"), not a place;
+        # 'full_location' is the real one.
+        where = d.get("full_location") or ", ".join(
+            x for x in (d.get("city"), d.get("state"), d.get("country")) if x
+        )
+        job = FetchedJob(
+            ats="icims",
+            from_api=True,
+            url=f"{origin}/jobs/{d.get('slug')}/job" if d.get("slug") else url,
+            company=d.get("brand") or _title(host.split(".")[-2]),
+            role_title=d.get("title"),
+            location=where or None,
+            jd_text=html_to_text(d.get("description") or ""),
+        )
+        if filters.matches(job):
+            out.append(job)
+    return out
 
 
 def enumerate_phenom(url: str, html: str, filters: BoardFilters) -> list[FetchedJob]:

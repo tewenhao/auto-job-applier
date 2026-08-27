@@ -6,7 +6,7 @@ from collections.abc import Iterable
 from uuid import UUID
 
 from app.config import get_settings
-from app.listings.discover import detect_board, enumerate_board_url, enumerate_phenom_url
+from app.listings.discover import detect_board, enumerate_board_url, enumerate_index_page
 from app.listings.fetch import FetchedJob, FetchError, fetch_job
 from app.listings.models import Listing, ListingSource, ListingStatus, normalize_company
 from app.listings.parse import ParsedListing, parse_listing
@@ -96,9 +96,9 @@ class ListingIngestor:
         parsed = parse_listing(self.llm, fetched)
 
         if not fetched.from_api and not parsed.is_job_posting:
-            phenom = enumerate_phenom_url(url, fetched.raw_html or "")
+            expanded = enumerate_index_page(url, fetched.raw_html or "")
             results: list[Listing] = []
-            for job in phenom:
+            for job in expanded:
                 try:
                     results.append(self._ingest_fetched(job, candidate_id=candidate_id))
                 except FetchError:
