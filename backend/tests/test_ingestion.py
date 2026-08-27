@@ -186,3 +186,46 @@ def test_build_github_profile_aggregates() -> None:
     assert gh.repos[0]["stars"] == 5
     assert gh.stats["followers"] == 10
     assert gh.pulled_at is not None
+
+
+# --- section-chunked extraction (a long master-doc can't be done in one call) ---
+def test_split_sections_keeps_headings_and_preamble() -> None:
+    from app.ingestion.extract import split_sections
+
+    doc = "# master doc\n\nintro line\n\n## experience\n\n### A\n\n## education\n\n### B\n"
+    chunks = split_sections(doc)
+    assert len(chunks) == 2
+    # the preamble rides with the first section rather than being dropped
+    assert chunks[0].startswith("# master doc") and "## experience" in chunks[0]
+    assert chunks[1].startswith("## education") and "### B" in chunks[1]
+
+
+def test_split_sections_handles_a_doc_with_no_headings() -> None:
+    from app.ingestion.extract import split_sections
+
+    assert split_sections("just some prose") == ["just some prose"]
+
+
+def test_merge_extractions_keeps_all_experiences_and_dedupes_skills() -> None:
+    from app.ingestion.extract import merge_extractions
+    from app.ingestion.schema import (
+        ExtractedContact,
+        ExtractedExperience,
+        ExtractedSkill,
+        ProfileExtraction,
+    )
+    from app.profile.models import ExperienceKind
+
+    a = ProfileExtraction(
+        experiences=[ExtractedExperience(kind=ExperienceKind.WORK, title="A")],
+        skills=[ExtractedSkill(name="Python"), ExtractedSkill(name="LaTeX")],
+    )
+    b = ProfileExtraction(
+        contact=ExtractedContact(full_name="Tester"),
+        experiences=[ExtractedExperience(kind=ExperienceKind.PROJECT, title="B")],
+        skills=[ExtractedSkill(name="python")],  # same skill, different case
+    )
+    merged = merge_extractions([a, b])
+    assert [e.title for e in merged.experiences] == ["A", "B"]
+    assert [s.name for s in merged.skills] == ["Python", "LaTeX"]
+    assert merged.contact is not None and merged.contact.full_name == "Tester"
