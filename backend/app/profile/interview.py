@@ -129,6 +129,19 @@ def next_step(
         {"role": "user", "content": f"{context}Interview me about the new entry."},
         *messages,
     ]
+    if messages[-1]["role"] == "assistant":
+        # The API requires the conversation to end with a user turn, and a
+        # transcript ends on a question whenever the last one went unanswered
+        # (a reload, or the candidate asking to draft early).
+        messages.append(
+            {
+                "role": "user",
+                "content": (
+                    "(No answer to that one.) If there is enough here for an honest "
+                    "entry, set ready. Otherwise ask something else."
+                ),
+            }
+        )
     step = llm.parse(
         task=Task.INTERVIEW,
         system=_INTERVIEW_SYSTEM,

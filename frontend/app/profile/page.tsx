@@ -152,6 +152,21 @@ export default function ProfilePage() {
     }
   }
 
+  async function draftNow() {
+    setBusy(true);
+    setError(null);
+    try {
+      const draft = await api.interviewDraft();
+      setSection(draft.section);
+      setMarkdown(draft.markdown);
+      setPhase("review");
+    } catch (e) {
+      setError(String((e as Error).message ?? e));
+    } finally {
+      setBusy(false);
+    }
+  }
+
   async function start() {
     setPhase("interviewing");
     setTranscript([]);
@@ -286,7 +301,7 @@ export default function ProfilePage() {
                 Send
               </button>
               <button
-                onClick={() => step()}
+                onClick={draftNow}
                 disabled={busy || transcript.length < 2}
                 title="Skip ahead and draft the entry from what you've said so far"
               >
