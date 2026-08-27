@@ -20,6 +20,7 @@ class ListingSummary(BaseModel):
     market: str | None = None
     score: int | None = None
     status: str
+    url: str | None = None  # original job-portal posting
     application_id: UUID | None = None  # existing draft for this listing, if any
 
     @classmethod
@@ -33,6 +34,7 @@ class ListingSummary(BaseModel):
             market=listing.market,
             score=listing.score,
             status=str(listing.status),
+            url=listing.url,
             application_id=application_id,
         )
 
@@ -66,6 +68,7 @@ class ApplicationDetail(BaseModel):
     resume_pdf_available: bool = False
     cover_letter_pdf_available: bool = False
     steer: str | None = None  # the standing/per-application steer last used
+    posting_url: str | None = None  # original job-portal posting
 
     @classmethod
     def build(cls, app: Application, listing: Listing | None) -> ApplicationDetail:
@@ -81,6 +84,7 @@ class ApplicationDetail(BaseModel):
             listing_id=app.listing_id,
             company=listing.company if listing else None,
             role_title=listing.role_title if listing else None,
+            posting_url=listing.url if listing else None,
             status=str(app.status),
             cover_letter=app.cover_letter,
             resume=resume,

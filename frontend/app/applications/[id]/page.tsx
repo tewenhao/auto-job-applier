@@ -82,7 +82,17 @@ export default function ApplicationPage({ params }: { params: Promise<{ id: stri
       <div className="detail-head">
         <div>
           <h1>{app.role_title ?? "Untitled role"}</h1>
-          <p className="muted">{app.company ?? "Unknown company"}</p>
+          <p className="muted">
+            {app.company ?? "Unknown company"}
+            {app.posting_url && (
+              <>
+                {" · "}
+                <a href={app.posting_url} target="_blank" rel="noreferrer">
+                  View posting ↗
+                </a>
+              </>
+            )}
+          </p>
         </div>
         <span className={`pill ${app.status}`}>{app.status}</span>
       </div>

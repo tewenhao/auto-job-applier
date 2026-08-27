@@ -58,6 +58,7 @@ export type ListingSummary = {
   market: string | null;
   score: number | null;
   status: string;
+  url: string | null; // original job-portal posting
   application_id: string | null; // existing draft for this listing, if any
 };
 
@@ -75,6 +76,7 @@ export type ApplicationDetail = ApplicationSummary & {
   resume_pdf_available: boolean;
   cover_letter_pdf_available: boolean;
   steer: string | null;
+  posting_url: string | null;
 };
 
 export type Preferences = {

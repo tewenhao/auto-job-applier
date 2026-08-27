@@ -65,7 +65,15 @@ export default function ListingsPage() {
               <div className="listing-main">
                 {l.score !== null && <span className="score-chip">{l.score}</span>}
                 <div>
-                  <div className="role">{l.role_title ?? "Untitled role"}</div>
+                  <div className="role">
+                    {l.url ? (
+                      <a href={l.url} target="_blank" rel="noreferrer" className="role-link">
+                        {l.role_title ?? "Untitled role"} ↗
+                      </a>
+                    ) : (
+                      (l.role_title ?? "Untitled role")
+                    )}
+                  </div>
                   <div className="company">
                     {l.company ?? "Unknown company"}
                     {l.location ? ` · ${l.location}` : ""}
