@@ -10,10 +10,12 @@ from app.listings.fetch import (
     _extract_head_meta,
     build_from_greenhouse,
     build_from_lever,
+    build_from_workday,
     detect_ats,
     html_to_text,
     parse_greenhouse_url,
     parse_lever_url,
+    parse_workday_url,
 )
 from app.listings.ingest import build_listing, dedupe_preserving_order, parse_url_lines
 from app.listings.models import Listing, ListingSource, ListingStatus, normalize_company
@@ -60,6 +62,42 @@ def test_parse_greenhouse_and_lever_urls() -> None:
     lever_id = "0a1b2c3d-4e5f-6789-abcd-ef0123456789"
     assert parse_lever_url(f"https://jobs.lever.co/acme/{lever_id}") == ("acme", lever_id)
     assert parse_lever_url("https://jobs.lever.co/acme/not-a-uuid") is None
+
+
+def test_parse_workday_url() -> None:
+    host, tenant, site, path = parse_workday_url(
+        "https://osv-cci.wd1.myworkdayjobs.com/en-US/CCICareers/job/"
+        "Front-Office-SWE-Internship_R1347?source=Trackr"
+    )
+    assert host == "osv-cci.wd1.myworkdayjobs.com"
+    assert tenant == "osv-cci"
+    assert site == "CCICareers"
+    assert path == "Front-Office-SWE-Internship_R1347"
+    # without the language segment
+    assert parse_workday_url("https://acme.wd5.myworkdayjobs.com/External/job/DS_R99") == (
+        "acme.wd5.myworkdayjobs.com",
+        "acme",
+        "External",
+        "DS_R99",
+    )
+    assert parse_workday_url("https://greenhouse.io/acme/jobs/1") is None
+
+
+def test_build_from_workday() -> None:
+    payload = {
+        "jobPostingInfo": {
+            "title": "Front Office SWE Intern",
+            "jobDescription": "<p>Build <b>trading</b> systems in C++.</p>",
+            "location": "London",
+        },
+        "hiringOrganization": {"name": "CCI"},
+    }
+    job = build_from_workday(payload, url="https://x.myworkdayjobs.com/en-US/S/job/Foo_R1")
+    assert job.ats == "workday"
+    assert job.role_title == "Front Office SWE Intern"
+    assert job.company == "CCI"
+    assert job.location == "London"
+    assert "trading systems in C++" in (job.jd_text or "")
 
 
 def test_html_to_text_strips_tags_and_scripts() -> None:

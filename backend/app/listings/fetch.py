@@ -17,7 +17,11 @@ from urllib.parse import urlparse
 import httpx
 from pydantic import BaseModel
 
-USER_AGENT = "auto-job-applier/0.1 (+personal job search tool)"
+# A browser UA: some ATS hosts (notably Workday) reject non-browser agents.
+USER_AGENT = (
+    "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 "
+    "(KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36"
+)
 # Below this many characters, a fetched page is almost certainly a JS shell.
 MIN_USABLE_CHARS = 400
 
@@ -64,6 +68,27 @@ def parse_lever_url(url: str) -> tuple[str, str] | None:
     return (m.group(1), m.group(2)) if m else None
 
 
+def parse_workday_url(url: str) -> tuple[str, str, str, str] | None:
+    """Return (host, tenant, site, job_path) for a Workday careers URL.
+
+    Workday careers pages are JS shells, but each has a JSON twin under
+    ``/wday/cxs/{tenant}/{site}/job/{job_path}``. E.g.
+    ``https://osv-cci.wd1.myworkdayjobs.com/en-US/CCICareers/job/Foo_R1347``
+    -> host ``osv-cci.wd1.myworkdayjobs.com``, tenant ``osv-cci``,
+    site ``CCICareers``, job_path ``Foo_R1347``.
+    """
+    m = re.search(
+        r"https?://([\w-]+\.[\w.-]*myworkdayjobs\.com)"
+        r"/(?:[a-z]{2}-[A-Z]{2}/)?([^/]+)/job/([^/?#]+)",
+        url,
+    )
+    if not m:
+        return None
+    host, site, job_path = m.group(1), m.group(2), m.group(3)
+    tenant = host.split(".")[0]
+    return host, tenant, site, job_path
+
+
 def html_to_text(raw: str) -> str:
     raw = re.sub(r"(?is)<(script|style)[^>]*>.*?</\1>", " ", raw)
     raw = re.sub(r"(?s)<[^>]+>", " ", raw)
@@ -98,6 +123,19 @@ def build_from_lever(payload: dict[str, Any], *, url: str | None = None) -> Fetc
     )
 
 
+def build_from_workday(payload: dict[str, Any], *, url: str | None = None) -> FetchedJob:
+    info = payload.get("jobPostingInfo") or {}
+    org = payload.get("hiringOrganization") or {}
+    return FetchedJob(
+        ats="workday",
+        url=url or info.get("externalUrl"),
+        company=org.get("name") if isinstance(org, dict) else None,
+        role_title=info.get("title"),
+        location=info.get("location"),
+        jd_text=html_to_text(info.get("jobDescription", "")),
+    )
+
+
 def fetch_job(url: str) -> FetchedJob:
     """Fetch and normalize a posting from a URL (network I/O)."""
     ats = detect_ats(url)
@@ -111,6 +149,16 @@ def fetch_job(url: str) -> FetchedJob:
         company, posting_id = parsed
         data = _get_json(f"https://api.lever.co/v0/postings/{company}/{posting_id}")
         return build_from_lever(data, url=url)
+
+    if ats == "workday" and (wd := parse_workday_url(url)):
+        host, tenant, site, job_path = wd
+        cxs = f"https://{host}/wday/cxs/{tenant}/{site}/job/{job_path}"
+        try:
+            job = build_from_workday(_get_json(cxs), url=url)
+        except (httpx.HTTPError, ValueError):
+            job = None  # fall through to the generic HTML path below
+        if job and job.jd_text and len(job.jd_text) >= MIN_USABLE_CHARS:
+            return job
 
     raw = _get_html(url)
     text = html_to_text(raw)
@@ -173,7 +221,8 @@ def _iso_date(value: Any) -> date | None:
 
 
 def _get_json(url: str) -> dict[str, Any]:
-    with httpx.Client(headers={"User-Agent": USER_AGENT}, timeout=30.0) as client:
+    headers = {"User-Agent": USER_AGENT, "Accept": "application/json"}
+    with httpx.Client(headers=headers, timeout=30.0) as client:
         resp = client.get(url, follow_redirects=True)
         resp.raise_for_status()
         return resp.json()  # type: ignore[no-any-return]
