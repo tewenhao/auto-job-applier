@@ -37,6 +37,7 @@ class FetchedJob(BaseModel):
     jd_text: str | None = None
     posted_at: date | None = None
     from_api: bool = False  # fetched via a structured single-job API (not scraped HTML)
+    raw_html: str | None = None  # scraped page HTML, kept for ATS sniffing (e.g. Phenom)
 
 
 class FetchError(RuntimeError):
@@ -222,6 +223,7 @@ def fetch_job(url: str) -> FetchedJob:
         company=meta.get("company"),
         role_title=meta.get("title"),
         jd_text=text,
+        raw_html=raw,
     )
 
 

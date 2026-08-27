@@ -6,7 +6,7 @@ from collections.abc import Iterable
 from uuid import UUID
 
 from app.config import get_settings
-from app.listings.discover import enumerate_board_url
+from app.listings.discover import detect_board, enumerate_board_url, enumerate_phenom_url
 from app.listings.fetch import FetchedJob, FetchError, fetch_job
 from app.listings.models import Listing, ListingSource, ListingStatus, normalize_company
 from app.listings.parse import ParsedListing, parse_listing
@@ -81,10 +81,41 @@ class ListingIngestor:
             threshold if threshold is not None else get_settings().listing_score_threshold
         )
 
+    def ingest_url(self, url: str, *, candidate_id: UUID) -> list[Listing]:
+        """Ingest from a URL, expanding boards/index pages into their roles.
+
+        - Greenhouse/Lever/Oracle *board* URLs are enumerated.
+        - A single posting is ingested as one listing.
+        - A page that parses as an index but is a Phenom site is enumerated too.
+        Returns every listing ingested (one for a normal posting).
+        """
+        if detect_board(url):
+            return self.ingest_board(url, candidate_id=candidate_id)
+
+        fetched = fetch_job(url)
+        parsed = parse_listing(self.llm, fetched)
+
+        if not fetched.from_api and not parsed.is_job_posting:
+            phenom = enumerate_phenom_url(url, fetched.raw_html or "")
+            results: list[Listing] = []
+            for job in phenom:
+                try:
+                    results.append(self._ingest_fetched(job, candidate_id=candidate_id))
+                except FetchError:
+                    continue
+            if results:
+                return results
+            raise FetchError(
+                f"{url} looks like a careers index / landing page listing many roles, "
+                "not one posting. Open a specific job and pass that URL."
+            )
+
+        return [self._finalize(fetched, parsed, candidate_id=candidate_id, url=url)]
+
     def ingest_manual(
         self, *, candidate_id: UUID, url: str | None = None, text: str | None = None
     ) -> Listing:
-        """Ingest a listing from a pasted URL or raw JD text."""
+        """Ingest one listing from a pasted URL or raw JD text (single posting)."""
         if url:
             fetched = fetch_job(url)
         elif text:
@@ -94,7 +125,7 @@ class ListingIngestor:
         return self._ingest_fetched(fetched, candidate_id=candidate_id, url=url)
 
     def ingest_board(self, url: str, *, candidate_id: UUID) -> list[Listing]:
-        """Enumerate a Greenhouse/Lever board URL and ingest each matching role.
+        """Enumerate a Greenhouse/Lever/Oracle board URL and ingest each role.
 
         Raises FetchError if the board yields no matching postings; individual
         postings that fail to ingest are skipped, not fatal.
@@ -126,7 +157,12 @@ class ListingIngestor:
                 f"{url or 'This text'} looks like a careers index / landing page listing "
                 "many roles, not one posting. Open a specific job and pass that URL."
             )
+        return self._finalize(fetched, parsed, candidate_id=candidate_id, url=url)
 
+    def _finalize(
+        self, fetched: FetchedJob, parsed: ParsedListing, *, candidate_id: UUID, url: str | None
+    ) -> Listing:
+        """Build -> zero-signal gate -> score -> store (no index gate)."""
         listing = build_listing(
             fetched,
             parsed,

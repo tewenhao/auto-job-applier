@@ -12,7 +12,7 @@ from __future__ import annotations
 
 import re
 from typing import Any
-from urllib.parse import parse_qs, urlparse
+from urllib.parse import parse_qs, quote, urlparse
 
 import httpx
 
@@ -21,6 +21,7 @@ from app.listings.fetch import (
     FetchedJob,
     build_from_greenhouse,
     build_from_lever,
+    html_to_text,
 )
 
 # Don't ingest an unbounded number of roles from a single board.
@@ -55,11 +56,11 @@ def _filters_from_query(query: str) -> BoardFilters:
     q = parse_qs(query)
     keywords: list[str] = []
     for kw in q.get("keyword", []):
-        keywords.extend(kw.split())
+        keywords.extend(w.strip('"') for w in kw.split())
 
     def _first(key: str) -> str | None:
         values = q.get(key)
-        return values[0] if values else None
+        return values[0].strip('"') if values else None
 
     return BoardFilters(
         keywords=keywords, location=_first("location"), commitment=_first("commitment")
@@ -91,6 +92,11 @@ def detect_board(url: str) -> tuple[str, str, BoardFilters] | None:
         m = re.search(r"lever\.co/([^/?#]+)", url)
         return ("lever", m.group(1), _filters_from_query(query)) if m else None
 
+    # Oracle HCM Cloud CandidateExperience search page.
+    m = re.search(r"/hcmUI/CandidateExperience/[^/]+/sites/([^/?#]+)", url)
+    if m and "oraclecloud" in host:
+        return ("oracle", f"{host}|{m.group(1)}", _filters_from_query(query))
+
     return None
 
 
@@ -102,6 +108,14 @@ def _get(url: str) -> Any:
     headers = {"User-Agent": USER_AGENT, "Accept": "application/json"}
     with httpx.Client(headers=headers, timeout=30.0) as client:
         resp = client.get(url, follow_redirects=True)
+        resp.raise_for_status()
+        return resp.json()
+
+
+def _post(url: str, payload: dict[str, Any]) -> Any:
+    headers = {"User-Agent": USER_AGENT, "Accept": "application/json"}
+    with httpx.Client(headers=headers, timeout=30.0) as client:
+        resp = client.post(url, json=payload, follow_redirects=True)
         resp.raise_for_status()
         return resp.json()
 
@@ -124,6 +138,145 @@ def enumerate_board(kind: str, token: str, filters: BoardFilters) -> list[Fetche
             commitment = (posting.get("categories") or {}).get("commitment")
             if filters.matches(fetched, commitment=commitment):
                 out.append(fetched)
+    elif kind == "oracle":
+        host, site = token.split("|", 1)
+        out = _enumerate_oracle(host, site, filters)
+    return out[:MAX_BOARD_RESULTS]
+
+
+# --- Oracle HCM Cloud (CandidateExperience) ---
+def _oracle_api(host: str) -> str:
+    return f"https://{host}/hcmRestApi/resources/latest"
+
+
+def _oracle_site_number(host: str, site: str) -> str | None:
+    """Map a CE site name (e.g. 'BNY-Careers') to its numeric siteNumber."""
+    data = _get(f"{_oracle_api(host)}/recruitingCESites?onlyData=true&expand=all")
+    for item in data.get("items", []):
+        names = {item.get("Name"), item.get("SiteName"), item.get("ExternalPathName")}
+        if site in names:
+            number = item.get("SiteNumber") or item.get("Number")
+            if number:
+                return str(number)
+    return None
+
+
+def _enumerate_oracle(host: str, site: str, filters: BoardFilters) -> list[FetchedJob]:
+    site_number = _oracle_site_number(host, site)
+    if not site_number:
+        return []
+    facets = "LOCATIONS;WORK_LOCATIONS;WORKPLACE_TYPES;TITLES;CATEGORIES;POSTING_DATES"
+    finder = (
+        f"findReqs;siteNumber={site_number},facetsList={facets},"
+        f"limit=200,sortBy=POSTING_DATES_DESC"
+    )
+    if filters.keywords:
+        finder += f',keyword={" ".join(filters.keywords)}'
+    search = (
+        f"{_oracle_api(host)}/recruitingCEJobRequisitions?onlyData=true"
+        f"&expand=requisitionList.secondaryLocations,flexFieldsFacet.values"
+        f"&finder={quote(finder, safe=';,=')}"
+    )
+    data = _get(search)
+    items = data.get("items") or [{}]
+    reqs = items[0].get("requisitionList", [])
+
+    out: list[FetchedJob] = []
+    for req in reqs:
+        job = FetchedJob(
+            ats="oracle",
+            from_api=True,
+            url=f"https://{host}/hcmUI/CandidateExperience/en/sites/{site}/job/{req.get('Id')}",
+            company=site.replace("-Careers", "").replace("Careers", "").strip("-") or site,
+            role_title=req.get("Title"),
+            location=req.get("PrimaryLocation"),
+        )
+        if not filters.matches(job):
+            continue
+        job.jd_text = _oracle_job_text(host, site_number, req.get("Id"))
+        out.append(job)
+    return out
+
+
+def _oracle_job_text(host: str, site_number: str, req_id: str | None) -> str:
+    if not req_id:
+        return ""
+    finder = f'ById;Id="{req_id}",siteNumber={site_number}'
+    safe_chars = ';,="'
+    encoded = quote(finder, safe=safe_chars)
+    url = (
+        f"{_oracle_api(host)}/recruitingCEJobRequisitionDetails?onlyData=true"
+        f"&expand=all&finder={encoded}"
+    )
+    try:
+        data = _get(url)
+    except httpx.HTTPError:
+        return ""
+    items = data.get("items") or [{}]
+    detail = items[0]
+    parts = [detail.get("ExternalDescriptionStr", ""), detail.get("ExternalQualificationsStr", "")]
+    return html_to_text(" ".join(p for p in parts if p))
+
+
+# --- Phenom People (POST /widgets, ddoKey=refineSearch) ---
+_PHENOM_REFNUM = re.compile(r"""["']refNum["']\s*[:=]\s*["']([A-Za-z0-9]+)["']""")
+
+
+def detect_phenom_refnum(html: str) -> str | None:
+    """A Phenom career page embeds its site's refNum in the page config."""
+    m = _PHENOM_REFNUM.search(html or "")
+    return m.group(1) if m else None
+
+
+def enumerate_phenom_url(url: str, html: str) -> list[FetchedJob]:
+    """Enumerate a Phenom site using filters read from the page URL."""
+    return enumerate_phenom(url, html, _filters_from_query(urlparse(url).query))
+
+
+def enumerate_phenom(url: str, html: str, filters: BoardFilters) -> list[FetchedJob]:
+    """Enumerate a Phenom career site's postings via its /widgets search API."""
+    refnum = detect_phenom_refnum(html)
+    host = urlparse(url).hostname
+    if not refnum or not host:
+        return []
+    payload = {
+        "lang": "en",
+        "deviceType": "desktop",
+        "country": "us",
+        "pageName": "search-results",
+        "ddoKey": "refineSearch",
+        "stringify": False,
+        "pageType": "external",
+        "jobs": True,
+        "counts": False,
+        "all_fields": ["category", "state", "city", "country", "department"],
+        "from": 0,
+        "size": 100,
+        "clientName": host.split(".")[0],
+        "excludeJd": False,
+        "facetType": 0,
+        "refNum": refnum,
+        "keywords": " ".join(filters.keywords) if filters.keywords else "",
+        "location": filters.location or "",
+    }
+    data = _post(f"https://{host}/widgets", payload)
+    jobs = (((data or {}).get("refineSearch") or {}).get("data") or {}).get("jobs") or []
+
+    out: list[FetchedJob] = []
+    for j in jobs:
+        location = j.get("cityStateCountry") or j.get("location") or j.get("city")
+        body = j.get("descriptionTeaser") or j.get("description") or j.get("jd") or ""
+        job = FetchedJob(
+            ats="phenom",
+            from_api=True,
+            url=j.get("applyUrl") or j.get("jobUrl") or j.get("url"),
+            company=_title(host.split(".")[0]) if host else None,
+            role_title=j.get("title"),
+            location=location,
+            jd_text=html_to_text(body),
+        )
+        if filters.matches(job):
+            out.append(job)
     return out[:MAX_BOARD_RESULTS]
 
 

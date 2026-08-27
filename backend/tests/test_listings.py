@@ -154,6 +154,92 @@ def test_enumerate_board_greenhouse(monkeypatch) -> None:  # noqa: ANN001
     assert jobs[0].company == "Jumptrading" and jobs[0].from_api is True
 
 
+# --- Oracle HCM enumeration ---
+def test_detect_board_oracle() -> None:
+    from app.listings.discover import detect_board
+
+    board = detect_board(
+        "https://eofe.fa.us2.oraclecloud.com/hcmUI/CandidateExperience/en/sites/"
+        'BNY-Careers/jobs?keyword=%22engineering%22&location=United+Kingdom'
+    )
+    assert board is not None
+    kind, token, filt = board
+    assert kind == "oracle"
+    assert token == "eofe.fa.us2.oraclecloud.com|BNY-Careers"
+    assert filt.keywords == ["engineering"]  # quotes stripped
+
+
+def test_enumerate_oracle(monkeypatch) -> None:  # noqa: ANN001
+    import app.listings.discover as d
+
+    def fake_get(url: str):  # noqa: ANN202
+        if "recruitingCESites" in url:
+            return {"items": [{"Name": "BNY-Careers", "SiteNumber": "CX_2001"}]}
+        if "recruitingCEJobRequisitionDetails" in url:
+            return {"items": [{"ExternalDescriptionStr": "<p>Build systems</p>"}]}
+        if "recruitingCEJobRequisitions" in url:
+            assert "CX_2001" in url and "keyword=engineering" in url
+            return {
+                "items": [
+                    {
+                        "requisitionList": [
+                            {"Id": "1", "Title": "Engineering Intern", "PrimaryLocation": "London"},
+                            {"Id": "2", "Title": "Marketing Lead", "PrimaryLocation": "London"},
+                        ]
+                    }
+                ]
+            }
+        raise AssertionError(url)
+
+    monkeypatch.setattr(d, "_get", fake_get)
+    from app.listings.discover import BoardFilters, enumerate_board
+
+    filt = BoardFilters(["engineering"], None, None)
+    jobs = enumerate_board("oracle", "h.oraclecloud.com|BNY-Careers", filt)
+    assert [j.role_title for j in jobs] == ["Engineering Intern"]
+    assert jobs[0].company == "BNY" and jobs[0].from_api is True
+    assert "Build systems" in (jobs[0].jd_text or "")
+
+
+# --- Phenom enumeration ---
+def test_detect_phenom_refnum() -> None:
+    from app.listings.discover import detect_phenom_refnum
+
+    assert detect_phenom_refnum('window.phApp={"refNum":"SIGGLOBAL"};') == "SIGGLOBAL"
+    assert detect_phenom_refnum("<html>no phenom here</html>") is None
+
+
+def test_enumerate_phenom(monkeypatch) -> None:  # noqa: ANN001
+    import app.listings.discover as d
+
+    def fake_post(url: str, payload):  # noqa: ANN202
+        assert url.endswith("/widgets") and payload["refNum"] == "SIGGLOBAL"
+        return {
+            "refineSearch": {
+                "data": {
+                    "jobs": [
+                        {
+                            "title": "Software Engineering Intern",
+                            "cityStateCountry": "London, UK",
+                            "descriptionTeaser": "<p>Intern role</p>",
+                            "applyUrl": "https://careers.sig.com/job/1",
+                        },
+                        {"title": "VP Trading", "cityStateCountry": "Chicago"},
+                    ]
+                }
+            }
+        }
+
+    monkeypatch.setattr(d, "_post", fake_post)
+    from app.listings.discover import enumerate_phenom_url
+
+    jobs = enumerate_phenom_url(
+        "https://careers.sig.com/jobs?keyword=intern", 'x = {"refNum":"SIGGLOBAL"}'
+    )
+    assert [j.role_title for j in jobs] == ["Software Engineering Intern"]
+    assert jobs[0].location == "London, UK" and jobs[0].from_api is True
+
+
 # --- ATS detection + URL parsing ---
 def test_detect_ats() -> None:
     assert detect_ats("https://boards.greenhouse.io/acme/jobs/123") == "greenhouse"

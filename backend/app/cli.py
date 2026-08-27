@@ -473,12 +473,11 @@ def listings_add(
     assert candidate.id is not None
     ingestor = ListingIngestor(ListingRepository(), profile_repo, LLMClient())
 
-    from app.listings.discover import detect_board
-
-    if url and detect_board(url):
-        typer.echo("Board URL — enumerating matching roles ...")
-        listings = ingestor.ingest_board(url, candidate_id=candidate.id)
-        typer.secho(f"{len(listings)} role(s) ingested:", fg=typer.colors.GREEN, bold=True)
+    if url:
+        typer.echo("Fetching, parsing, and scoring (expanding boards if any) ...")
+        listings = ingestor.ingest_url(url, candidate_id=candidate.id)
+        if len(listings) != 1:
+            typer.secho(f"{len(listings)} role(s) ingested:", fg=typer.colors.GREEN, bold=True)
         for listing in listings:
             typer.secho(
                 f"  [{listing.score}] {listing.status:9} {listing.role_title} @ {listing.company}",
@@ -486,8 +485,8 @@ def listings_add(
             )
         return
 
-    typer.echo("Fetching, parsing, and scoring ...")
-    listing = ingestor.ingest_manual(candidate_id=candidate.id, url=url, text=text)
+    typer.echo("Parsing and scoring ...")
+    listing = ingestor.ingest_manual(candidate_id=candidate.id, text=text)
     typer.secho(
         f"[{listing.score}] {listing.role_title} @ {listing.company} "
         f"({listing.status}) — {listing.score_rationale}",
@@ -534,8 +533,6 @@ def listings_add_batch(
     assert candidate.id is not None
     ingestor = ListingIngestor(ListingRepository(), profile_repo, LLMClient())
 
-    from app.listings.discover import detect_board
-
     def _report(listing: object) -> None:
         typer.secho(
             f"  [{listing.score}] {listing.status:9} {listing.role_title} @ {listing.company}",  # type: ignore[attr-defined]
@@ -547,16 +544,13 @@ def listings_add_batch(
     typer.echo(f"Ingesting {len(targets)} URLs ...")
     for url in targets:
         try:
-            if detect_board(url):
-                # A board URL expands into every posting matching its filters.
-                listings = ingestor.ingest_board(url, candidate_id=candidate.id)
+            # A board / enumerable index expands into every matching posting.
+            listings = ingestor.ingest_url(url, candidate_id=candidate.id)
+            if len(listings) != 1:
                 typer.secho(f"  [board] {url} -> {len(listings)} role(s)", fg=typer.colors.CYAN)
-                for listing in listings:
-                    ok += 1
-                    _report(listing)
-            else:
-                _report(ingestor.ingest_manual(candidate_id=candidate.id, url=url))
+            for listing in listings:
                 ok += 1
+                _report(listing)
         except Exception as exc:  # noqa: BLE001 - one bad URL shouldn't abort the batch
             failed += 1
             typer.secho(f"  [skip] {url}: {exc}", fg=typer.colors.RED)
