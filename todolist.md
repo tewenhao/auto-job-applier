@@ -138,7 +138,11 @@ commands, so it isn't a blocker; revisit if gap-filling proves needed.
 - [x] Cover letter rendered to PDF via LaTeX, matching the résumé's header/font.
 - [x] Add listings from the browser — paste URLs (boards expand) or a JD;
       results stream in per URL, skips shown with their reason.
-- [ ] Live check: run the full loop in the browser for a fresh batch.
+- [x] Live check: the full loop in the browser — add listings, generate, steer,
+      edit, approve. It surfaced four things unit tests could not: run progress
+      died on navigation, every document downloaded as `resume.pdf`, steering
+      moved the ranking but not what trimming cut, and trimming deleted whole
+      entries before touching a bullet. All fixed.
 
 ## Later phases (expanded when reached)
 - [ ] **Module 5** — Form auto-fill (Playwright) + essay answers + field review.

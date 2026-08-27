@@ -26,7 +26,14 @@ UI and the CLI behave identically.
     experience / projects / skills, with reorderable bullets) and a text editor
     for the cover letter. Saving re-renders the PDF from exactly what you wrote,
     with no model call;
-  - links to the compiled **résumé and cover-letter PDFs**.
+  - links to the compiled **résumé and cover-letter PDFs**, downloaded as
+    `<candidate>-<company>-<kind>.pdf` so a folder of them stays legible.
+
+Ingesting a batch and generating an application are long server-side jobs, so
+their progress is held outside the page: switch tabs mid-run and come back, and
+you are still watching the same run. A full browser reload does end a run — its
+unfinished rows say so rather than pretending otherwise, and re-ingesting is
+safe (listings de-duplicate by URL).
 
 ## Running it
 

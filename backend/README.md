@@ -103,6 +103,25 @@ uv run ajp application approve <id> [--submitted]
 RSAF and IMDA roles over side projects"); `preferences set-guidance` makes such a
 priority the standing default for every resume.
 
+Files are named `<candidate>-<company>-<kind>` (e.g.
+`en-hao-tew-citadel-resume.pdf`), so a folder of downloads says which firm each
+document is for. An ATS upload field that dictates a filename overrides this.
+
+**Fitting one page.** The resume is compiled, its pages counted, and one trim
+applied at a time until it fits — cheapest step first, by what it costs the
+reader:
+
+1. merge two short bullets that still fit a single rendered line (saves a line,
+   loses nothing);
+2. thin the entry carrying the most bullets down to two, dropping its least
+   informative bullet first — prose goes before a bullet carrying a figure;
+3. drop the weakest whole project, then the weakest whole experience;
+4. only then shave toward one bullet each.
+
+"Weakest" is the lowest score in the model's own ranking — the scores `--steer`
+and `set-guidance` move — so a role you steered up is not cut for sitting late
+in a list. Each trim is reported with the rank that justified it.
+
 ### Module 4 — dashboard
 
 ```bash
