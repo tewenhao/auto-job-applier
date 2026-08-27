@@ -13,13 +13,20 @@ from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import FileResponse
 
 from app.api import service
-from app.api.deps import get_gen_repo, get_listings_repo, get_profile_repo
+from app.api.deps import (
+    get_gen_repo,
+    get_listing_ingestor,
+    get_listings_repo,
+    get_profile_repo,
+)
 from app.api.schemas import (
     ApplicationDetail,
     ApplicationSummary,
     ApproveRequest,
     CoverLetterUpdate,
     GenerateRequest,
+    IngestRequest,
+    IngestResult,
     ListingSummary,
     Preferences,
     PreferencesUpdate,
@@ -29,6 +36,7 @@ from app.api.schemas import (
 from app.generation.models import Application, ApplicationStatus
 from app.generation.repository import GenerationRepository
 from app.generation.resume import RESUME_GUIDANCE_KEY
+from app.listings.ingest import ListingIngestor
 from app.listings.repository import ListingRepository
 from app.profile.models import Preferences as ProfilePreferences
 from app.profile.repository import ProfileRepository
@@ -99,6 +107,35 @@ def list_listings(
         ListingSummary.build(lst, apps_by_listing.get(lst.id) if lst.id else None)
         for lst in listings.list(candidate.id)
     ]
+
+
+@app.post("/api/listings/ingest", response_model=IngestResult)
+def ingest_listing(
+    body: IngestRequest,
+    ingestor: ListingIngestor = Depends(get_listing_ingestor),
+    profiles: ProfileRepository = Depends(get_profile_repo),
+) -> IngestResult:
+    """Ingest one URL (expanding boards) or pasted JD text.
+
+    Slow: fetches, parses with the LLM, and scores. A failure is reported in
+    the body so the dashboard can render it as a per-URL skip.
+    """
+    if not body.url and not body.text:
+        raise HTTPException(status_code=400, detail="Provide a url or text.")
+    candidate = profiles.get_or_create_default_candidate()
+    assert candidate.id is not None
+    try:
+        if body.url:
+            listings = ingestor.ingest_url(body.url, candidate_id=candidate.id)
+        else:
+            listings = [ingestor.ingest_manual(candidate_id=candidate.id, text=body.text)]
+    except Exception as exc:  # noqa: BLE001 - surfaced to the user as a skip
+        return IngestResult(url=body.url, error=str(exc))
+    return IngestResult(
+        url=body.url,
+        listings=[ListingSummary.build(x, None) for x in listings],
+        expanded=len(listings) > 1,
+    )
 
 
 @app.get("/api/applications", response_model=list[ApplicationSummary])

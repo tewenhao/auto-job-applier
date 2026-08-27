@@ -7,7 +7,9 @@ override them (``app.dependency_overrides``) with fakes — no Supabase needed.
 from __future__ import annotations
 
 from app.generation.repository import GenerationRepository
+from app.listings.ingest import ListingIngestor
 from app.listings.repository import ListingRepository
+from app.llm import LLMClient
 from app.profile.repository import ProfileRepository
 
 
@@ -21,3 +23,7 @@ def get_listings_repo() -> ListingRepository:
 
 def get_profile_repo() -> ProfileRepository:
     return ProfileRepository()
+
+
+def get_listing_ingestor() -> ListingIngestor:
+    return ListingIngestor(ListingRepository(), ProfileRepository(), LLMClient())

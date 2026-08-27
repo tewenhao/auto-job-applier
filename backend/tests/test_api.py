@@ -13,7 +13,12 @@ from uuid import uuid4
 
 from fastapi.testclient import TestClient
 
-from app.api.deps import get_gen_repo, get_listings_repo, get_profile_repo
+from app.api.deps import (
+    get_gen_repo,
+    get_listing_ingestor,
+    get_listings_repo,
+    get_profile_repo,
+)
 from app.api.main import app
 from app.generation.models import Application, ApplicationStatus
 from app.listings.models import Listing, ListingSource
@@ -283,3 +288,55 @@ def test_generate_missing_listing_404() -> None:
     client = _client(apps=[], listings=[])
     resp = client.post("/api/generate", json={"listing_id": str(uuid4())})
     assert resp.status_code == 404
+
+
+class FakeIngestor:
+    """Stands in for ListingIngestor: returns canned listings or raises."""
+
+    def __init__(self, listings=None, error=None):  # noqa: ANN001
+        self._listings = listings or []
+        self._error = error
+
+    def ingest_url(self, url, *, candidate_id):  # noqa: ANN001
+        if self._error:
+            raise RuntimeError(self._error)
+        return self._listings
+
+    def ingest_manual(self, *, candidate_id, url=None, text=None):  # noqa: ANN001
+        if self._error:
+            raise RuntimeError(self._error)
+        return self._listings[0]
+
+
+def _ingest_client(ingestor) -> TestClient:  # noqa: ANN001
+    app.dependency_overrides[get_listing_ingestor] = lambda: ingestor
+    app.dependency_overrides[get_profile_repo] = FakeProfileRepo
+    return TestClient(app)
+
+
+def test_ingest_single_listing() -> None:
+    listing = _listing()
+    client = _ingest_client(FakeIngestor([listing]))
+    body = client.post("/api/listings/ingest", json={"url": "https://x.com/job/1"}).json()
+    assert body["error"] is None
+    assert body["expanded"] is False
+    assert [row["role_title"] for row in body["listings"]] == ["SWE Intern"]
+
+
+def test_ingest_board_url_reports_expansion() -> None:
+    client = _ingest_client(FakeIngestor([_listing(), _listing(), _listing()]))
+    body = client.post("/api/listings/ingest", json={"url": "https://jobs.lever.co/acme"}).json()
+    assert body["expanded"] is True and len(body["listings"]) == 3
+
+
+def test_ingest_failure_is_a_skip_not_a_500() -> None:
+    client = _ingest_client(FakeIngestor(error="looks like a careers index page"))
+    resp = client.post("/api/listings/ingest", json={"url": "https://x.com/careers"})
+    assert resp.status_code == 200
+    assert "careers index" in resp.json()["error"]
+    assert resp.json()["listings"] == []
+
+
+def test_ingest_requires_url_or_text() -> None:
+    client = _ingest_client(FakeIngestor([]))
+    assert client.post("/api/listings/ingest", json={}).status_code == 400

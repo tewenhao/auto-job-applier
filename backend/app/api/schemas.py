@@ -126,3 +126,21 @@ class Preferences(BaseModel):
 
 class PreferencesUpdate(BaseModel):
     resume_guidance: str = ""  # empty clears the standing guidance
+
+
+class IngestRequest(BaseModel):
+    """One URL (or pasted JD text) to ingest. Kept to a single item per request
+    so the dashboard can report progress as each one completes."""
+
+    url: str | None = None
+    text: str | None = None
+
+
+class IngestResult(BaseModel):
+    url: str | None = None
+    listings: list[ListingSummary] = Field(default_factory=list)
+    # A board/index URL that expanded into several roles.
+    expanded: bool = False
+    # Ingestion failures are per-URL outcomes (like the CLI's "skip"), not
+    # server errors, so they come back in the body rather than as a 4xx.
+    error: str | None = None

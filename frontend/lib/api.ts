@@ -79,6 +79,13 @@ export type ApplicationDetail = ApplicationSummary & {
   posting_url: string | null;
 };
 
+export type IngestResult = {
+  url: string | null;
+  listings: ListingSummary[];
+  expanded: boolean; // a board URL that expanded into several roles
+  error: string | null; // a per-URL skip, not a server error
+};
+
 export type Preferences = {
   resume_guidance: string | null;
 };
@@ -153,6 +160,12 @@ export const api = {
   resumePdfUrl: (id: string) => `${API_BASE}/api/applications/${id}/resume.pdf`,
 
   coverLetterPdfUrl: (id: string) => `${API_BASE}/api/applications/${id}/cover_letter.pdf`,
+
+  ingestListing: (body: { url?: string; text?: string }) =>
+    request<IngestResult>("/api/listings/ingest", {
+      method: "POST",
+      body: JSON.stringify(body),
+    }),
 
   getPreferences: () => request<Preferences>("/api/preferences"),
 
