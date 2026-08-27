@@ -2,7 +2,8 @@
 
 Python backend for auto-job-applier — the agent brain. Modules 1–3 (candidate
 profile, listing ingestion, application generation) live here behind the `ajp`
-CLI; scraping / Gmail / the dashboard backend arrive in later modules.
+CLI, plus the dashboard API (`ajp serve`); Gmail and ATS form-fill arrive in
+later modules.
 
 ## Setup
 
@@ -13,6 +14,15 @@ cd backend
 uv sync                      # create the venv and install deps
 cp .env.example .env         # then fill in your keys
 uv run ajp check             # validate configuration
+```
+
+Optional — a headless browser for JavaScript-rendered or bot-gated postings
+(Workday, IBM, and similar). Without it those URLs are skipped with a message;
+everything else works unchanged:
+
+```bash
+uv sync --extra browser
+uv run playwright install chromium
 ```
 
 ## Configuration
@@ -68,6 +78,15 @@ Browse it yourself and grab outbound application links with the
 `listings add-batch`. The individual application pages (Greenhouse/Lever/company
 sites) are public and fetched normally.
 
+A URL that points at a **board or filtered search** (rather than one posting)
+is expanded into every role matching the filters already in that URL — so
+`jobs.lever.co/acme?commitment=Internship&location=London` ingests all of them
+in one go. This works for Greenhouse, Lever, Oracle HCM, Eightfold and iCIMS.
+Workday, Greenhouse and Lever single postings use their JSON APIs directly; a
+page that is a genuine index (a programme landing page, a bespoke roles table)
+is skipped with a reason, and you can paste its job description with
+`--text` instead.
+
 ### Module 3 — application generation
 
 ```bash
@@ -84,6 +103,17 @@ uv run ajp application approve <id> [--submitted]
 RSAF and IMDA roles over side projects"); `preferences set-guidance` makes such a
 priority the standing default for every resume.
 
+### Module 4 — dashboard
+
+```bash
+uv run ajp serve [--port 8000] [--reload]   # dashboard API; docs at /docs
+```
+
+Serves the same reads and actions the CLI exposes — listings, ingestion,
+generation, ranking, steering, hand-edits, approval — over HTTP for the
+Next.js UI in [`../frontend`](../frontend). Both call the same repositories
+and pipeline, so behaviour cannot drift between them.
+
 ## Layout
 
 ```
@@ -93,9 +123,11 @@ app/
   ingestion/    input parsers: documents, GitHub, LinkedIn export, consolidation
   profile/      Pydantic models + Supabase DAL + Markdown render
   voice/        voice-profile distiller + master-doc VOICE harvest
-  listings/     fetch (ATS fast-paths) + parse + score against preferences  (Module 2)
+  listings/     fetch (ATS fast-paths, browser fallback), board discovery,
+                parse + score against preferences                            (Module 2)
   generation/   company research, cover letter, résumé tailoring + LaTeX,
                 one-page trim loop, ranking/steer                            (Module 3)
+  api/          FastAPI dashboard API served by `ajp serve`                 (Module 4)
   db/           Supabase client
   cli.py        Typer entrypoint (the `ajp` command)
 tests/

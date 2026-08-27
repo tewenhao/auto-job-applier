@@ -7,7 +7,14 @@ UI and the CLI behave identically.
 
 ## What it does
 
-- **`/`** — every generated application, with company / role / status.
+- **`/`** — **Listings**: the scored queue. Each role links out to the original
+  posting, and a Generate button drafts an application for it.
+- **`/add`** — **Add listings**: paste job URLs (one per line) or a job
+  description. Board and search links expand into every matching role; results
+  stream in per URL, and a skipped URL shows why.
+- **`/priorities`** — the standing résumé guidance (what to prioritise on every
+  résumé); the same value as `ajp preferences set-guidance`.
+- **`/applications`** — every generated draft, with company / role / status.
 - **`/applications/[id]`** — the review center for one application:
   - the tailorer's **ranking** of every experience/project it considered
     (score, rationale, included/dropped), so you can see _why_ it chose what
@@ -15,7 +22,11 @@ UI and the CLI behave identically.
   - a **steer** box — free-text guidance that re-runs the pipeline and visibly
     changes the affected scores;
   - **approve / mark submitted**;
-  - a link to the **compiled PDF** and the tailored cover letter.
+  - **hand-editing** — a structured editor for the résumé (education /
+    experience / projects / skills, with reorderable bullets) and a text editor
+    for the cover letter. Saving re-renders the PDF from exactly what you wrote,
+    with no model call;
+  - links to the compiled **résumé and cover-letter PDFs**.
 
 ## Running it
 

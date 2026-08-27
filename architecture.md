@@ -106,10 +106,10 @@ Control flows through the dashboard; data flows through Supabase.
 | # | Module | Responsibility | Status |
 |---|--------|----------------|--------|
 | 1 | **Candidate Profile** | Ingest all inputs (resume, master-doc, essays, LinkedIn export, GitHub) into the master-superset profile; voice model; preferences. | **Done** |
-| 2 | Listing Ingestion | Manual paste + batch (UK Tracker link-grabber); parse to listing model; score vs preferences. | **Done** |
+| 2 | Listing Ingestion | Manual paste + batch; structured ATS fast-paths and board enumeration (Greenhouse, Lever, Workday, Oracle HCM, Eightfold, iCIMS) with a headless-browser fallback; parse to listing model; score vs preferences. | **Done** |
 | 3 | Application Generation | Tailored one-page resume (LaTeX → PDF) + humanified, voiced cover letter grounded in JD + company values; inspectable ranking + steering. | **Done** |
-| 4 | Dashboard skeleton | Web UI shell; migrates the CLI review/steer queues into a browser. | **Next** |
-| 5 | Form Auto-fill | Playwright ATS form-fill + essay answers; field-level review before submit. | Later |
+| 4 | **Dashboard** | Next.js UI over a FastAPI layer (`ajp serve`): add listings, browse the scored queue, generate, inspect the ranking, steer/regenerate, edit résumé + cover letter, approve. | **Done** |
+| 5 | Form Auto-fill | Playwright ATS form-fill + essay answers; field-level review before submit. | **Next** |
 | 6 | Gmail Monitor | Gmail API + Pub/Sub; classify responses; update tracker. | Later |
 | 7 | Tracker | Supabase as source of truth + Notion-synced human-readable view. | Later |
 | 8 | Wire-up | Dashboard as the central HITL + notifications + tracker surface. | Last |
@@ -120,9 +120,10 @@ Control flows through the dashboard; data flows through Supabase.
 
 - **Backend** — Python (`uv`, Typer CLI, Pydantic models). Houses the agent
   brain: ingestion, parsing, interview, voice, generation, orchestration,
-  scraping, Playwright, Gmail worker. Module 1 is entirely backend + CLI.
-- **Frontend** — Next.js (TypeScript). The dashboard; arrives at module 4.
-  Reserved in the repo layout now, empty until then.
+  scraping, Playwright, Gmail worker. It also serves the dashboard API
+  (FastAPI, `ajp serve`), so the CLI and the web UI drive identical code paths.
+- **Frontend** — Next.js (TypeScript, App Router). The dashboard (module 4): a
+  thin client over the same API, holding no business logic of its own.
 - **Database** — Supabase (Postgres) from day 1, via SQL migrations (not manual
   table creation) so a fresh clone can stand up the schema reproducibly.
 - **LLM** — Anthropic Claude. **Opus** for the conversational interview (quality
@@ -146,13 +147,14 @@ auto-job-applier/
 │   │   ├── llm/           # Anthropic client wrapper + model config
 │   │   ├── db/            # Supabase client
 │   │   ├── config.py      # env-driven settings
-│   │   └── cli.py         # Typer entrypoints (ingest / interview / voice / profile)
+│   │   ├── api/           # FastAPI dashboard API (`ajp serve`)
+│   │   └── cli.py         # Typer entrypoints (ingest / voice / listings / generate / serve)
 │   ├── tests/
 │   ├── pyproject.toml
 │   └── .env.example
 ├── supabase/
 │   └── migrations/        # versioned SQL schema
-├── frontend/              # reserved for module 4 (Next.js)
+├── frontend/              # Next.js dashboard (module 4)
 ├── architecture.md
 ├── modules.md
 ├── decisions.md

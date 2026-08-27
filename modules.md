@@ -116,12 +116,17 @@ carries both a concise summary and long-form detail, plus links to evidence.
 
 ## Module 2 — Listing Ingestion
 - **Responsibility:** get job listings into the system and score them.
-- **Interface:** In: manual pasted link **or** scraper output (UK Tracker first,
-  then Greenhouse/Lever/Workday/LinkedIn). Out: `listings` rows with
+- **Interface:** In: a pasted link, a batch of links (the Trackr link-grabber),
+  or pasted JD text. A link may name one posting *or* a board/filtered search,
+  which is enumerated into every matching role. Out: `listings` rows with
   `source` ∈ {`manual`, `scraped`}, parsed JD, company, role, market, and a
   preference-match score.
 - **Key concepts:** manual paste is a first-class path and the easiest to ship
-  first. Listings group by company; a **one-role-per-company** constraint means
+  first. Fetching is layered: a structured ATS API where one exists
+  (Greenhouse, Lever, Workday, Oracle HCM, Eightfold, iCIMS), then plain HTTP,
+  then an optional headless browser for JS-rendered or bot-gated pages. A URL
+  whose shape names a single posting is never rejected by the careers-index
+  heuristic. Listings group by company; a **one-role-per-company** constraint means
   sibling roles surface together and the user picks exactly one — the system
   never auto-picks at a one-shot company.
 - **Depends on:** Module 1 (`preferences` for scoring).
@@ -133,10 +138,17 @@ carries both a concise summary and long-form detail, plus links to evidence.
   drafts for HITL review.
 - **Depends on:** Modules 1, 2.
 
-## Module 4 — Dashboard skeleton
-- **Responsibility:** web UI shell; migrates the CLI interview + review queues
-  into the browser.
-- **Depends on:** Module 1 (profile), reads Supabase.
+## Module 4 — Dashboard
+- **Responsibility:** the browser surface for the whole loop — add listings,
+  review the scored queue, generate, inspect the ranking, steer and regenerate,
+  hand-edit the résumé and cover letter, approve.
+- **Interface:** a FastAPI layer (`ajp serve`) over the existing repositories
+  and generation pipeline, and a Next.js client over that API. The API holds no
+  logic the CLI doesn't, so the two cannot drift.
+- **Key concepts:** every mutation is still HITL — the dashboard prepares and
+  the user decides. Hand-edits re-render deterministically (no model call),
+  which keeps "the model drafts" and "I am the final author" separate.
+- **Depends on:** Modules 1–3, reads Supabase.
 
 ## Module 5 — Form Auto-fill
 - **Responsibility:** Playwright ATS form-fill + essay answers grounded in the

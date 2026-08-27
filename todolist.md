@@ -3,7 +3,7 @@
 Ordered roughly by dependency. Module 1 is broken into concrete steps; later
 modules are high-level phases, expanded when we reach them.
 
-**Status: Modules 1–3 complete and merged to `main`. Module 4 (Dashboard) next.**
+**Status: Modules 1–4 complete. Module 5 (Form auto-fill) next.**
 The conversational interview (Phase 3) was deferred — the voice model is built
 from writing samples and preferences are captured via the `ajp preferences`
 commands, so it isn't a blocker; revisit if gap-filling proves needed.
@@ -88,8 +88,19 @@ commands, so it isn't a blocker; revisit if gap-filling proves needed.
       (`scripts/trackr-link-grabber.js`). UK Tracker (The Trackr) is a paid SPA;
       scraping its API is ToS/account-risky, so we grab links browser-side and
       batch-ingest the public application pages instead.
-- [ ] Greenhouse/Lever/Workday board scrapers (beyond single-URL fast-paths).
-- [ ] Live check: derive preferences, add a real listing, review scoring.
+- [x] Structured ATS fast-paths beyond Greenhouse/Lever: Workday (the `wday/cxs`
+      JSON twin), Greenhouse embeds on company domains (`?gh_jid=`).
+- [x] Board enumeration — a *board* URL expands into every posting matching the
+      filters already in that URL (keyword / location / commitment), instead of
+      being rejected as an index page: Greenhouse, Lever, Oracle HCM, plus
+      Eightfold and iCIMS (sniffed from the rendered HTML, since neither is
+      identifiable from the URL alone). Verified across several tenants.
+- [x] Headless-browser fallback (optional `browser` extra) for JS-rendered or
+      bot-gated pages, used only when the HTTP fetch comes back empty.
+- [x] Ingestion quality: role/company from `<title>`/OG tags; reject careers
+      index pages; never index-gate a URL whose shape names one posting.
+- [x] Live check: derive preferences, add real listings, review scoring
+      (69 of 76 roles from a 33-URL Trackr batch ingest end-to-end).
 
 ## Module 3 — Application generation (branch: feat/application-generation)
 - [x] Voice distillation (`ajp voice build`) — style guide from writing samples.
@@ -110,10 +121,26 @@ commands, so it isn't a blocker; revisit if gap-filling proves needed.
 - [x] Live check: `voice build`, then `generate` for chosen listings; reviewed
       and iterated (Citadel, GIC, and others).
 
+## Module 4 — Dashboard (branch: feat/dashboard)
+- [x] FastAPI layer over the existing repositories + pipeline (`ajp serve`), so
+      the CLI and the web UI drive identical code paths. Repos arrive via
+      `Depends`, so tests swap fakes in — no Supabase needed.
+- [x] Next.js (App Router) client: Listings, Add, Applications, Priorities.
+- [x] Listings view — scored queue, links out to the original posting, and a
+      Generate button per role.
+- [x] Application review — the tailorer's ranking (score, rationale, in/out), a
+      steer box that re-runs generation, approve / mark submitted.
+- [x] Hand-editing: résumé (structured editor for education / experience /
+      projects / skills, reorderable bullets) and cover letter (plain text).
+      Saving re-renders the PDF deterministically — no model call.
+- [x] Priorities editor — the standing résumé guidance, shared with
+      `ajp preferences set-guidance`.
+- [x] Cover letter rendered to PDF via LaTeX, matching the résumé's header/font.
+- [x] Add listings from the browser — paste URLs (boards expand) or a JD;
+      results stream in per URL, skips shown with their reason.
+- [ ] Live check: run the full loop in the browser for a fresh batch.
+
 ## Later phases (expanded when reached)
-- [ ] **Module 4** — Dashboard skeleton; migrate interview + review queues to web
-      (render the ranking as an editable list; "Regenerate" calls generate with
-      steer — the backend seam is already in place).
 - [ ] **Module 5** — Form auto-fill (Playwright) + essay answers + field review.
 - [ ] **Module 6** — Gmail monitor (API + Pub/Sub) + response classification.
 - [ ] **Module 7** — Tracker (Supabase source of truth + Notion-synced view).
