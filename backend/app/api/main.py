@@ -34,6 +34,7 @@ from app.api.schemas import (
     ResumeUpdate,
 )
 from app.generation.models import Application, ApplicationStatus
+from app.generation.naming import COVER_LETTER, RESUME, document_filename
 from app.generation.repository import GenerationRepository
 from app.generation.resume import RESUME_GUIDANCE_KEY
 from app.listings.ingest import ListingIngestor
@@ -241,10 +242,29 @@ def generate(
     return ApplicationDetail.build(saved, listings.get(saved.listing_id))
 
 
+def _download_name(
+    application: Application,
+    kind: str,
+    listings: ListingRepository,
+    profiles: ProfileRepository,
+) -> str:
+    """``<candidate>-<company>-<kind>.pdf``, so a folder of downloads is
+    self-explanatory."""
+    listing = listings.get(application.listing_id)
+    candidate = profiles.get_candidate(application.candidate_id)
+    return document_filename(
+        candidate_name=candidate.full_name if candidate else None,
+        company=listing.company if listing else None,
+        kind=kind,
+    )
+
+
 @app.get("/api/applications/{app_id}/resume.pdf")
 def resume_pdf(
     app_id: UUID,
     gen: GenerationRepository = Depends(get_gen_repo),
+    listings: ListingRepository = Depends(get_listings_repo),
+    profiles: ProfileRepository = Depends(get_profile_repo),
 ) -> FileResponse:
     application = _load(app_id, gen)
     pdf = service.ensure_pdf(application)
@@ -252,13 +272,19 @@ def resume_pdf(
         raise HTTPException(
             status_code=404, detail="No PDF (no LaTeX toolchain, or resume not generated)"
         )
-    return FileResponse(pdf, media_type="application/pdf", filename="resume.pdf")
+    return FileResponse(
+        pdf,
+        media_type="application/pdf",
+        filename=_download_name(application, RESUME, listings, profiles),
+    )
 
 
 @app.get("/api/applications/{app_id}/cover_letter.pdf")
 def cover_letter_pdf(
     app_id: UUID,
     gen: GenerationRepository = Depends(get_gen_repo),
+    listings: ListingRepository = Depends(get_listings_repo),
+    profiles: ProfileRepository = Depends(get_profile_repo),
 ) -> FileResponse:
     application = _load(app_id, gen)
     pdf = service.ensure_cover_letter_pdf(application)
@@ -267,4 +293,8 @@ def cover_letter_pdf(
             status_code=404,
             detail="No PDF (no LaTeX toolchain, or no cover letter generated)",
         )
-    return FileResponse(pdf, media_type="application/pdf", filename="cover_letter.pdf")
+    return FileResponse(
+        pdf,
+        media_type="application/pdf",
+        filename=_download_name(application, COVER_LETTER, listings, profiles),
+    )

@@ -60,6 +60,9 @@ class FakeProfileRepo:
     def get_or_create_default_candidate(self) -> Candidate:
         return Candidate(id=CID, full_name="Tester")
 
+    def get_candidate(self, candidate_id):  # noqa: ANN001
+        return Candidate(id=CID, full_name="Tester")
+
     def get_preferences(self, candidate_id):  # noqa: ANN001
         return self._prefs
 
@@ -256,6 +259,8 @@ def test_cover_letter_pdf_served(monkeypatch, tmp_path) -> None:  # noqa: ANN001
     resp = client.get(f"/api/applications/{a.id}/cover_letter.pdf")
     assert resp.status_code == 200
     assert resp.headers["content-type"] == "application/pdf"
+    # named for the candidate + firm, so a folder of downloads is legible
+    assert "tester-acme-cover-letter.pdf" in resp.headers["content-disposition"]
 
 
 def test_cover_letter_pdf_404_when_none(monkeypatch) -> None:  # noqa: ANN001

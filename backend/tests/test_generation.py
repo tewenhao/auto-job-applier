@@ -80,3 +80,30 @@ def test_samples_block_truncates_and_limits() -> None:
     block = _samples_block(samples)
     assert block.startswith("[essay]") and len(block) < 3000
     assert _samples_block([]) == "(none)"
+
+
+def test_document_filename_defaults_and_override() -> None:
+    from app.generation.naming import COVER_LETTER, document_filename
+
+    assert (
+        document_filename(candidate_name="En Hao Tew", company="Citadel")
+        == "en-hao-tew-citadel-resume.pdf"
+    )
+    assert (
+        document_filename(
+            candidate_name="En Hao Tew", company="The D. E. Shaw Group", kind=COVER_LETTER
+        )
+        == "en-hao-tew-the-d-e-shaw-group-cover-letter.pdf"
+    )
+    # unknown parts are skipped rather than left as empty separators
+    assert document_filename(candidate_name="En Hao Tew", company=None) == "en-hao-tew-resume.pdf"
+    assert document_filename(candidate_name=None, company=None) == "resume.pdf"
+    assert (
+        document_filename(candidate_name="En Hao Tew", company="Citadel", ext="tex")
+        == "en-hao-tew-citadel-resume.tex"
+    )
+    # an ATS-required name wins (Module 5), extension still enforced
+    assert (
+        document_filename(candidate_name="X", company="Y", override="Resume_2027.pdf")
+        == "resume-2027.pdf"
+    )

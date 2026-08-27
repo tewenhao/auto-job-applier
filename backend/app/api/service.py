@@ -14,6 +14,7 @@ from uuid import UUID
 from app.generation.cover_letter_latex import compile_cover_letter
 from app.generation.latex import compile_to_page_limit
 from app.generation.models import Application
+from app.generation.naming import COVER_LETTER, RESUME, document_filename
 from app.generation.pipeline import generate_application
 from app.generation.repository import GenerationRepository
 from app.generation.resume import TailoredResume
@@ -39,20 +40,28 @@ def _compile_and_store(app: Application, *, max_pages: int) -> Application:
 
     dest = API_OUT / str(app.id)
     dest.mkdir(parents=True, exist_ok=True)
+    listing = ListingRepository().get(app.listing_id)
+    company = listing.company if listing else None
+
+    def _name(kind: str, ext: str) -> str:
+        return document_filename(
+            candidate_name=candidate.full_name, company=company, kind=kind, ext=ext
+        )
 
     if app.resume_content:
         resume = TailoredResume.model_validate(app.resume_content)
-        result = compile_to_page_limit(resume, candidate, dest / "resume.tex", max_pages=max_pages)
+        result = compile_to_page_limit(
+            resume, candidate, dest / _name(RESUME, "tex"), max_pages=max_pages
+        )
         app.resume_tex = result.tex
         app.resume_content = result.resume.model_dump(mode="json")
         if result.pdf_path is not None:
             app.resume_pdf_path = str(result.pdf_path)
 
     if app.cover_letter:
-        (dest / "cover_letter.txt").write_text(app.cover_letter)
-        listing = ListingRepository().get(app.listing_id)
+        (dest / _name(COVER_LETTER, "txt")).write_text(app.cover_letter)
         _, cl_pdf = compile_cover_letter(
-            app.cover_letter, candidate, listing, dest / "cover_letter.tex"
+            app.cover_letter, candidate, listing, dest / _name(COVER_LETTER, "tex")
         )
         if cl_pdf is not None:
             app.meta = {**app.meta, COVER_LETTER_PDF_KEY: str(cl_pdf)}
@@ -88,9 +97,19 @@ def save_cover_letter(application_id: UUID, text: str) -> Application:
     if cleaned and candidate is not None:
         dest = API_OUT / str(existing.id)
         dest.mkdir(parents=True, exist_ok=True)
-        (dest / "cover_letter.txt").write_text(cleaned)
         listing = ListingRepository().get(existing.listing_id)
-        _, cl_pdf = compile_cover_letter(cleaned, candidate, listing, dest / "cover_letter.tex")
+        company = listing.company if listing else None
+
+        def _name(ext: str) -> str:
+            return document_filename(
+                candidate_name=candidate.full_name,
+                company=company,
+                kind=COVER_LETTER,
+                ext=ext,
+            )
+
+        (dest / _name("txt")).write_text(cleaned)
+        _, cl_pdf = compile_cover_letter(cleaned, candidate, listing, dest / _name("tex"))
         if cl_pdf is not None:
             meta[COVER_LETTER_PDF_KEY] = str(cl_pdf)
     existing.meta = meta

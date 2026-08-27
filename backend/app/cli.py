@@ -693,6 +693,7 @@ def generate(
     from uuid import UUID
 
     from app.generation.latex import compile_to_page_limit
+    from app.generation.naming import COVER_LETTER, RESUME, document_filename
     from app.generation.pipeline import generate_application
     from app.generation.repository import GenerationRepository
     from app.generation.resume import TailoredResume
@@ -708,17 +709,29 @@ def generate(
     company = (listing.company if listing else None) or "application"
     dest = Path(out_dir) / f"{_slug(company)}-{datetime.now():%Y%m%d-%H%M%S}"
     dest.mkdir(parents=True, exist_ok=True)
+    candidate = ProfileRepository().get_candidate(application.candidate_id)
+
+    def _name(kind: str, ext: str) -> str:
+        # <candidate>-<company>-<kind>: obvious which firm a file belongs to
+        # once several are sitting in a downloads folder together.
+        return document_filename(
+            candidate_name=candidate.full_name if candidate else None,
+            company=listing.company if listing else None,
+            kind=kind,
+            ext=ext,
+        )
+
     if application.cover_letter:
-        (dest / "cover_letter.txt").write_text(application.cover_letter)
-        candidate = ProfileRepository().get_candidate(application.candidate_id)
+        (dest / _name(COVER_LETTER, "txt")).write_text(application.cover_letter)
         if pdf and candidate is not None:
             from app.generation.cover_letter_latex import compile_cover_letter
 
+            cl_tex = dest / _name(COVER_LETTER, "tex")
             _, cl_pdf = compile_cover_letter(
-                application.cover_letter, candidate, listing, dest / "cover_letter.tex"
+                application.cover_letter, candidate, listing, cl_tex
             )
             typer.echo(
-                f"  cover letter: {dest / 'cover_letter.tex'}"
+                f"  cover letter: {cl_tex}"
                 + (f" -> {cl_pdf}" if cl_pdf else " (not compiled: no LaTeX toolchain)")
             )
 
@@ -730,7 +743,7 @@ def generate(
         typer.echo(f"View it with `ajp application show {application.id}`.")
         return
 
-    tex_path = dest / "resume.tex"
+    tex_path = dest / _name(RESUME, "tex")
     resume = TailoredResume.model_validate(application.resume_content)
 
     if not pdf:
@@ -739,7 +752,6 @@ def generate(
         typer.echo(f"View it with `ajp application show {application.id}`.")
         return
 
-    candidate = ProfileRepository().get_candidate(application.candidate_id)
     assert candidate is not None
     result = compile_to_page_limit(resume, candidate, tex_path, max_pages=max_pages)
 
