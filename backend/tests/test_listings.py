@@ -94,6 +94,66 @@ def test_fetch_job_raises_when_browser_unavailable(monkeypatch) -> None:  # noqa
         f.fetch_job("https://careers.example.com/job/1")
 
 
+# --- board enumeration (discovery) ---
+def test_detect_board_lever_and_greenhouse() -> None:
+    from app.listings.discover import detect_board
+
+    kind, token, filt = detect_board(
+        "https://jobs.lever.co/palantir?location=London&commitment=Internship"
+    )
+    assert (kind, token) == ("lever", "palantir")
+    assert filt.location == "london" and filt.commitment == "internship"
+
+    kind, token, filt = detect_board(
+        "https://job-boards.greenhouse.io/embed/job_board?for=jumptrading&keyword=engineer+intern"
+    )
+    assert (kind, token) == ("greenhouse", "jumptrading")
+    assert filt.keywords == ["engineer", "intern"]
+
+    # single postings are not boards
+    assert detect_board("https://job-boards.greenhouse.io/quadraturecapital/jobs/4255974") is None
+    assert (
+        detect_board("https://jobs.lever.co/acme/0a1b2c3d-4e5f-6789-abcd-ef0123456789") is None
+    )
+    assert detect_board("https://www.quantbot.com/careers/?gh_jid=4299858009") is None
+
+
+def test_board_filters_matching() -> None:
+    from app.listings.discover import BoardFilters
+    from app.listings.fetch import FetchedJob
+
+    swe = FetchedJob(ats="lever", role_title="Software Engineer Intern", location="London, UK")
+    grad = FetchedJob(ats="lever", role_title="Graduate Analyst", location="New York")
+
+    # keyword AND-match on title
+    assert BoardFilters(["engineer", "intern"], None, None).matches(swe)
+    assert not BoardFilters(["engineer", "intern"], None, None).matches(grad)
+    # location substring
+    assert BoardFilters(["intern"], "london", None).matches(swe)
+    assert not BoardFilters(["intern"], "london", None).matches(grad)
+    # commitment (lever)
+    assert BoardFilters([], None, "internship").matches(swe, commitment="Internship")
+    # empty filters -> default intern keyword
+    assert BoardFilters([], None, None).keywords == ["intern"]
+
+
+def test_enumerate_board_greenhouse(monkeypatch) -> None:  # noqa: ANN001
+    import app.listings.discover as d
+
+    payload = {
+        "jobs": [
+            {"title": "Software Engineer Intern", "content": "<p>Build stuff</p>", "location": {}},
+            {"title": "Senior Staff Engineer", "content": "<p>Lead</p>", "location": {}},
+        ]
+    }
+    monkeypatch.setattr(d, "_get", lambda url: payload)
+    from app.listings.discover import BoardFilters, enumerate_board
+
+    jobs = enumerate_board("greenhouse", "jumptrading", BoardFilters(["intern"], None, None))
+    assert [j.role_title for j in jobs] == ["Software Engineer Intern"]
+    assert jobs[0].company == "Jumptrading" and jobs[0].from_api is True
+
+
 # --- ATS detection + URL parsing ---
 def test_detect_ats() -> None:
     assert detect_ats("https://boards.greenhouse.io/acme/jobs/123") == "greenhouse"

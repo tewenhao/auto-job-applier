@@ -473,6 +473,19 @@ def listings_add(
     assert candidate.id is not None
     ingestor = ListingIngestor(ListingRepository(), profile_repo, LLMClient())
 
+    from app.listings.discover import detect_board
+
+    if url and detect_board(url):
+        typer.echo("Board URL — enumerating matching roles ...")
+        listings = ingestor.ingest_board(url, candidate_id=candidate.id)
+        typer.secho(f"{len(listings)} role(s) ingested:", fg=typer.colors.GREEN, bold=True)
+        for listing in listings:
+            typer.secho(
+                f"  [{listing.score}] {listing.status:9} {listing.role_title} @ {listing.company}",
+                fg=typer.colors.GREEN,
+            )
+        return
+
     typer.echo("Fetching, parsing, and scoring ...")
     listing = ingestor.ingest_manual(candidate_id=candidate.id, url=url, text=text)
     typer.secho(
@@ -521,17 +534,29 @@ def listings_add_batch(
     assert candidate.id is not None
     ingestor = ListingIngestor(ListingRepository(), profile_repo, LLMClient())
 
+    from app.listings.discover import detect_board
+
+    def _report(listing: object) -> None:
+        typer.secho(
+            f"  [{listing.score}] {listing.status:9} {listing.role_title} @ {listing.company}",  # type: ignore[attr-defined]
+            fg=typer.colors.GREEN,
+        )
+
     ok = 0
     failed = 0
     typer.echo(f"Ingesting {len(targets)} URLs ...")
     for url in targets:
         try:
-            listing = ingestor.ingest_manual(candidate_id=candidate.id, url=url)
-            ok += 1
-            typer.secho(
-                f"  [{listing.score}] {listing.status:9} {listing.role_title} @ {listing.company}",
-                fg=typer.colors.GREEN,
-            )
+            if detect_board(url):
+                # A board URL expands into every posting matching its filters.
+                listings = ingestor.ingest_board(url, candidate_id=candidate.id)
+                typer.secho(f"  [board] {url} -> {len(listings)} role(s)", fg=typer.colors.CYAN)
+                for listing in listings:
+                    ok += 1
+                    _report(listing)
+            else:
+                _report(ingestor.ingest_manual(candidate_id=candidate.id, url=url))
+                ok += 1
         except Exception as exc:  # noqa: BLE001 - one bad URL shouldn't abort the batch
             failed += 1
             typer.secho(f"  [skip] {url}: {exc}", fg=typer.colors.RED)

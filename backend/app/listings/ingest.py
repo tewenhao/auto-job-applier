@@ -6,6 +6,7 @@ from collections.abc import Iterable
 from uuid import UUID
 
 from app.config import get_settings
+from app.listings.discover import enumerate_board_url
 from app.listings.fetch import FetchedJob, FetchError, fetch_job
 from app.listings.models import Listing, ListingSource, ListingStatus, normalize_company
 from app.listings.parse import ParsedListing, parse_listing
@@ -90,7 +91,31 @@ class ListingIngestor:
             fetched = FetchedJob(ats="manual", jd_text=text)
         else:
             raise ValueError("Provide either a URL or JD text.")
+        return self._ingest_fetched(fetched, candidate_id=candidate_id, url=url)
 
+    def ingest_board(self, url: str, *, candidate_id: UUID) -> list[Listing]:
+        """Enumerate a Greenhouse/Lever board URL and ingest each matching role.
+
+        Raises FetchError if the board yields no matching postings; individual
+        postings that fail to ingest are skipped, not fatal.
+        """
+        jobs = enumerate_board_url(url)
+        if not jobs:
+            raise FetchError(
+                f"No matching roles found on the board {url} (check the filters in the URL)."
+            )
+        out: list[Listing] = []
+        for fetched in jobs:
+            try:
+                out.append(self._ingest_fetched(fetched, candidate_id=candidate_id))
+            except FetchError:
+                continue
+        return out
+
+    def _ingest_fetched(
+        self, fetched: FetchedJob, *, candidate_id: UUID, url: str | None = None
+    ) -> Listing:
+        """Parse -> gate -> build -> score -> store a fetched posting."""
         parsed = parse_listing(self.llm, fetched)
 
         # Only gate on the careers-index heuristic for scraped HTML — a job
