@@ -9,6 +9,8 @@ constraints (never surfaced, and they govern which numbers may be stated).
 
 from __future__ import annotations
 
+import re
+
 from pydantic import BaseModel, Field
 
 from app.config import Task
@@ -205,6 +207,43 @@ def tailor_resume(
     )
 
 
+def _tokens(text: str | None) -> set[str]:
+    return {t for t in re.split(r"[^a-z0-9]+", (text or "").lower()) if t}
+
+
+def _ranked_score(label: str, ranking: list[RankedItem], kind: str, position: int) -> int:
+    """The model's score for the entry described by ``label``.
+
+    ``ranking`` labels are free text ("AI Engineer @ RSAF RAiD"), so match them
+    to entries by token overlap. When an entry can't be matched, fall back to a
+    position-derived score, which preserves the old "the list is best-first"
+    assumption for that entry only.
+    """
+    tokens = _tokens(label)
+    best_score: int | None = None
+    best_overlap = 0.0
+    for item in ranking:
+        if item.kind != kind:
+            continue
+        other = _tokens(item.label)
+        if not tokens or not other:
+            continue
+        overlap = len(tokens & other) / min(len(tokens), len(other))
+        if overlap > best_overlap:
+            best_overlap, best_score = overlap, item.score
+    if best_score is not None and best_overlap >= 0.5:
+        return best_score
+    return max(0, 100 - position)
+
+
+def _weakest_index(labels: list[str], ranking: list[RankedItem], kind: str) -> int:
+    """Index of the lowest-ranked entry; ties resolve to the later one."""
+    scored = [
+        (_ranked_score(label, ranking, kind, i), i) for i, label in enumerate(labels)
+    ]
+    return min(scored, key=lambda pair: (pair[0], -pair[1]))[1]
+
+
 def trim_one_step(
     resume: TailoredResume,
     *,
@@ -216,8 +255,10 @@ def trim_one_step(
 
     Drop WHOLE entries before shaving any bullet, so the entries that survive keep
     their numbers and full elaboration rather than everything going thin. Projects
-    are lighter signals than experiences, so they go first. Lists are ordered
-    best-first (relevance + substance), so "last" is always the weakest. Escalation:
+    are lighter signals than experiences, so they go first. "Weakest" means the
+    lowest score in ``resume.ranking`` — the same scores steering moves — so an
+    item the user steered up is not cut just because of where it sits in the
+    list. Escalation:
 
     1. drop the weakest project, down to ``min_projects``;
     2. drop the weakest experience, down to ``min_experiences``;
@@ -236,12 +277,24 @@ def trim_one_step(
                 best = entry
         return best
 
+    def _drop_project(index: int) -> tuple[TailoredResume, str]:
+        gone = r.projects.pop(index)
+        score = _ranked_score(gone.name, r.ranking, "project", index)
+        return r, f"dropped project '{gone.name}' (rank {score})"
+
+    def _drop_experience(index: int) -> tuple[TailoredResume, str]:
+        gone = r.experience.pop(index)
+        label = f"{gone.title} {gone.org}".strip()
+        score = _ranked_score(label, r.ranking, "experience", index)
+        return r, f"dropped experience '{gone.title}' (rank {score})"
+
     # 1) Drop the weakest project (whole), keeping a floor.
     if len(r.projects) > min_projects:
-        return r, f"dropped project '{r.projects.pop().name}'"
+        return _drop_project(_weakest_index([p.name for p in r.projects], r.ranking, "project"))
     # 2) Drop the weakest experience (whole), keeping a floor.
     if len(r.experience) > min_experiences:
-        return r, f"dropped experience '{r.experience.pop().title}'"
+        labels = [f"{e.title} {e.org}".strip() for e in r.experience]
+        return _drop_experience(_weakest_index(labels, r.ranking, "experience"))
     # 3) Last resort — shave a bullet from the fattest entry (keep >= 1 bullet).
     fat = _fattest(1)
     if fat is not None:
@@ -250,9 +303,10 @@ def trim_one_step(
         return r, f"dropped a bullet from '{label}'"
     # 4) Nothing left to shave — drop remaining projects, then experiences.
     if r.projects:
-        return r, f"dropped project '{r.projects.pop().name}'"
+        return _drop_project(_weakest_index([p.name for p in r.projects], r.ranking, "project"))
     if len(r.experience) > 1:
-        return r, f"dropped experience '{r.experience.pop().title}'"
+        labels = [f"{e.title} {e.org}".strip() for e in r.experience]
+        return _drop_experience(_weakest_index(labels, r.ranking, "experience"))
 
     return None
 

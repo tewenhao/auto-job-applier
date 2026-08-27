@@ -196,16 +196,16 @@ def test_trim_drops_whole_projects_before_experiences_before_shaving() -> None:
         projects=[ProjectEntry(name=f"P{i}", bullets=["x", "y"]) for i in range(1, 4)],
     )
     r1, n1 = trim_one_step(r)  # type: ignore[misc]
-    assert n1 == "dropped project 'P3'"  # weakest (last) project first
+    assert n1.startswith("dropped project 'P3'")  # weakest (last) project first
     assert len(r1.projects) == 2
     # Nothing shaved: every surviving entry keeps all its bullets.
     assert all(len(e.bullets) == 3 for e in r1.experience)
 
     r2, n2 = trim_one_step(r1)  # type: ignore[misc]
-    assert n2 == "dropped project 'P2'"  # projects continue down to the floor of 1
+    assert n2.startswith("dropped project 'P2'")  # projects continue down to the floor of 1
 
     r3, n3 = trim_one_step(r2)  # type: ignore[misc]
-    assert n3 == "dropped experience 'D'"  # only then whole experiences
+    assert n3.startswith("dropped experience 'D'")  # only then whole experiences
     assert len(r3.projects) == 1 and all(len(e.bullets) == 3 for e in r3.experience)
 
 
@@ -229,9 +229,9 @@ def test_trim_reaches_bare_minimum_then_stops() -> None:
         projects=[ProjectEntry(name="P", bullets=["x"])],
     )
     r1, n1 = trim_one_step(r)  # type: ignore[misc]
-    assert n1 == "dropped project 'P'"
+    assert n1.startswith("dropped project 'P'")
     r2, n2 = trim_one_step(r1)  # type: ignore[misc]
-    assert n2 == "dropped experience 'B'"
+    assert n2.startswith("dropped experience 'B'")
     assert trim_one_step(r2) is None  # 1 experience, no projects — bare minimum
 
 
@@ -249,3 +249,36 @@ def test_compile_to_page_limit_without_toolchain_writes_tex(tmp_path: Path, monk
     assert result.pages is None  # unverifiable without compiling
     assert result.trims == []  # never trim blindly
     assert result.resume == r
+
+
+def test_trim_drops_by_ranking_not_list_position() -> None:
+    """A steered-up item is not cut just because it sits late in the list.
+
+    Steering moves the scores in `ranking`; the entry lists are not guaranteed
+    to be reordered to match, so trimming has to read the scores.
+    """
+    from app.generation.resume import RankedItem, trim_one_step
+
+    resume = TailoredResume(
+        experience=[
+            ExperienceEntry(title="Barista", org="Cafe", bullets=["Made coffee"]),
+            ExperienceEntry(title="Tutor", org="School", bullets=["Taught"]),
+            # steered to the top, but last in the list
+            ExperienceEntry(title="AI Engineer", org="RSAF", bullets=["Shipped ASR"]),
+        ],
+        projects=[],
+        ranking=[
+            RankedItem(kind="experience", label="AI Engineer @ RSAF", score=95,
+                       included=True, rationale="steered up"),
+            RankedItem(kind="experience", label="Tutor, School", score=40,
+                       included=True, rationale="ok"),
+            RankedItem(kind="experience", label="Barista at Cafe", score=10,
+                       included=True, rationale="weak"),
+        ],
+    )
+
+    trimmed, note = trim_one_step(resume, min_projects=0, min_experiences=2)
+    titles = [e.title for e in trimmed.experience]
+    assert "AI Engineer" in titles  # the steered item survives
+    assert "Barista" not in titles  # the lowest-ranked one goes
+    assert "rank 10" in note  # and the note says why
