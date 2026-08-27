@@ -83,6 +83,31 @@ def test_parse_workday_url() -> None:
     assert parse_workday_url("https://greenhouse.io/acme/jobs/1") is None
 
 
+def test_parse_workday_url_multi_segment_path() -> None:
+    # Workday sometimes prefixes the job slug with a location segment.
+    _, _, _, path = parse_workday_url(
+        "https://tencent.wd1.myworkdayjobs.com/en-US/Tencent_Careers/job/"
+        "UK-London/Software-Engineering-Intern_R107162-1?source=Trackr"
+    )
+    assert path == "UK-London/Software-Engineering-Intern_R107162-1"
+
+
+def test_greenhouse_embed_detection() -> None:
+    from app.listings.fetch import _greenhouse_embed
+
+    assert _greenhouse_embed("https://www.quantbot.com/careers/?gh_jid=4299858009") == (
+        "quantbot",
+        "4299858009",
+    )
+    assert _greenhouse_embed("https://acme.com/jobs?x=1") is None
+
+
+def test_api_result_has_from_api_flag() -> None:
+    # build_* set from_api so ingestion never index-gates a structured single job
+    assert build_from_greenhouse({"title": "X"}).from_api is True
+    assert build_from_workday({"jobPostingInfo": {"title": "X"}}).from_api is True
+
+
 def test_build_from_workday() -> None:
     payload = {
         "jobPostingInfo": {

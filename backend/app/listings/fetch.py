@@ -12,7 +12,7 @@ import html
 import re
 from datetime import date, datetime
 from typing import Any
-from urllib.parse import urlparse
+from urllib.parse import parse_qs, urlparse
 
 import httpx
 from pydantic import BaseModel
@@ -34,6 +34,7 @@ class FetchedJob(BaseModel):
     location: str | None = None
     jd_text: str | None = None
     posted_at: date | None = None
+    from_api: bool = False  # fetched via a structured single-job API (not scraped HTML)
 
 
 class FetchError(RuntimeError):
@@ -79,14 +80,28 @@ def parse_workday_url(url: str) -> tuple[str, str, str, str] | None:
     """
     m = re.search(
         r"https?://([\w-]+\.[\w.-]*myworkdayjobs\.com)"
-        r"/(?:[a-z]{2}-[A-Z]{2}/)?([^/]+)/job/([^/?#]+)",
+        r"/(?:[a-z]{2}-[A-Z]{2}/)?([^/]+)/job/([^?#]+)",  # job path may span '/'
         url,
     )
     if not m:
         return None
-    host, site, job_path = m.group(1), m.group(2), m.group(3)
+    host, site = m.group(1), m.group(2)
+    job_path = m.group(3).rstrip("/")  # may be 'Location/Slug_R123'
     tenant = host.split(".")[0]
     return host, tenant, site, job_path
+
+
+def _greenhouse_embed(url: str) -> tuple[str, str] | None:
+    """A Greenhouse job embedded on a company domain carries ?gh_jid=NNN. Guess
+    the board token from the domain's main label (e.g. quantbot.com -> quantbot)."""
+    parts = urlparse(url)
+    jid_values = parse_qs(parts.query).get("gh_jid")
+    jid = jid_values[0] if jid_values else None
+    if not jid or not jid.isdigit():
+        return None
+    host = (parts.hostname or "").lower().removeprefix("www.")
+    token = host.split(".")[0] if host else ""
+    return (token, jid) if token else None
 
 
 def html_to_text(raw: str) -> str:
@@ -102,6 +117,7 @@ def build_from_greenhouse(payload: dict[str, Any], *, url: str | None = None) ->
     posted = _iso_date(payload.get("updated_at") or payload.get("created_at"))
     return FetchedJob(
         ats="greenhouse",
+        from_api=True,
         url=url or payload.get("absolute_url"),
         company=payload.get("company_name"),
         role_title=payload.get("title"),
@@ -116,6 +132,7 @@ def build_from_lever(payload: dict[str, Any], *, url: str | None = None) -> Fetc
     text = payload.get("descriptionPlain") or html_to_text(payload.get("description", ""))
     return FetchedJob(
         ats="lever",
+        from_api=True,
         url=url or payload.get("hostedUrl"),
         role_title=payload.get("text"),
         location=categories.get("location") if isinstance(categories, dict) else None,
@@ -128,6 +145,7 @@ def build_from_workday(payload: dict[str, Any], *, url: str | None = None) -> Fe
     org = payload.get("hiringOrganization") or {}
     return FetchedJob(
         ats="workday",
+        from_api=True,
         url=url or info.get("externalUrl"),
         company=org.get("name") if isinstance(org, dict) else None,
         role_title=info.get("title"),
@@ -159,6 +177,16 @@ def fetch_job(url: str) -> FetchedJob:
             job = None  # fall through to the generic HTML path below
         if job and job.jd_text and len(job.jd_text) >= MIN_USABLE_CHARS:
             return job
+
+    # Greenhouse boards embedded on a company's own domain (?gh_jid=NNN) are
+    # detected as "other" but are served by the Greenhouse API.
+    if ats == "other" and (gh := _greenhouse_embed(url)):
+        board, job_id = gh
+        try:
+            data = _get_json(f"https://boards-api.greenhouse.io/v1/boards/{board}/jobs/{job_id}")
+            return build_from_greenhouse(data, url=url)
+        except (httpx.HTTPError, ValueError):
+            pass  # fall through to the generic HTML path below
 
     raw = _get_html(url)
     text = html_to_text(raw)
