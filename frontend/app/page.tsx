@@ -2,14 +2,26 @@
 
 import { useRouter } from "next/navigation";
 import Link from "next/link";
-import { useEffect, useState } from "react";
+import { useEffect, useState, useSyncExternalStore } from "react";
 import { api, type ListingSummary } from "@/lib/api";
+import {
+  getGeneratingServerSnapshot,
+  getGeneratingSnapshot,
+  startGenerate,
+  subscribeGenerating,
+} from "@/lib/runs";
 
 export default function ListingsPage() {
   const router = useRouter();
   const [listings, setListings] = useState<ListingSummary[] | null>(null);
   const [error, setError] = useState<string | null>(null);
-  const [generating, setGenerating] = useState<string | null>(null);
+  // Tracked outside the component, so navigating away mid-generate is safe.
+  const generatingIds = useSyncExternalStore(
+    subscribeGenerating,
+    getGeneratingSnapshot,
+    getGeneratingServerSnapshot,
+  );
+  const generating = generatingIds[0] ?? null;
 
   useEffect(() => {
     api
@@ -19,14 +31,12 @@ export default function ListingsPage() {
   }, []);
 
   async function generate(listingId: string) {
-    setGenerating(listingId);
     setError(null);
     try {
-      const app = await api.generate(listingId);
-      router.push(`/applications/${app.id}`);
+      const appId = await startGenerate(listingId);
+      if (appId) router.push(`/applications/${appId}`);
     } catch (e) {
       setError(String((e as Error).message ?? e));
-      setGenerating(null);
     }
   }
 

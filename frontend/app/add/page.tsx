@@ -2,10 +2,15 @@
 
 import Link from "next/link";
 import { useRouter } from "next/navigation";
-import { useState } from "react";
-import { api, type IngestResult } from "@/lib/api";
-
-type Row = IngestResult & { status: "pending" | "running" | "done" };
+import { useEffect, useState, useSyncExternalStore } from "react";
+import {
+  clearIngestRun,
+  getIngestServerSnapshot,
+  getIngestSnapshot,
+  startTextRun,
+  startUrlRun,
+  subscribeIngest,
+} from "@/lib/runs";
 
 // One line per URL; blank lines and # comments are ignored (same as --file).
 function parseUrls(text: string): string[] {
@@ -24,57 +29,31 @@ export default function AddListingsPage() {
   const router = useRouter();
   const [mode, setMode] = useState<"urls" | "text">("urls");
   const [input, setInput] = useState("");
-  const [rows, setRows] = useState<Row[]>([]);
-  const [running, setRunning] = useState(false);
+  // Run state lives outside the component, so switching tabs mid-run keeps it.
+  const { rows, running } = useSyncExternalStore(
+    subscribeIngest,
+    getIngestSnapshot,
+    getIngestServerSnapshot,
+  );
+
+  // A full reload would abandon an in-flight run; warn before losing sight of it.
+  useEffect(() => {
+    if (!running) return;
+    const warn = (e: BeforeUnloadEvent) => e.preventDefault();
+    window.addEventListener("beforeunload", warn);
+    return () => window.removeEventListener("beforeunload", warn);
+  }, [running]);
 
   const urls = mode === "urls" ? parseUrls(input) : [];
   const ingested = rows.reduce((n, r) => n + r.listings.length, 0);
   const skipped = rows.filter((r) => r.status === "done" && r.error).length;
 
   async function run() {
-    setRunning(true);
     if (mode === "text") {
-      setRows([{ url: null, listings: [], expanded: false, error: null, status: "running" }]);
-      try {
-        const res = await api.ingestListing({ text: input });
-        setRows([{ ...res, status: "done" }]);
-      } catch (e) {
-        const error = String((e as Error).message ?? e);
-        setRows([{ url: null, listings: [], expanded: false, error, status: "done" }]);
-      }
-      setRunning(false);
-      return;
+      await startTextRun(input);
+    } else {
+      await startUrlRun(urls);
     }
-
-    // Sequential: each URL fetches, parses with the LLM, and scores, so this
-    // shows progress rather than blocking on one long request.
-    setRows(
-      urls.map((url) => ({
-        url,
-        listings: [],
-        expanded: false,
-        error: null,
-        status: "pending" as const,
-      })),
-    );
-    for (let i = 0; i < urls.length; i++) {
-      setRows((prev) => prev.map((r, j) => (j === i ? { ...r, status: "running" } : r)));
-      let result: Row;
-      try {
-        const res = await api.ingestListing({ url: urls[i] });
-        result = { ...res, status: "done" };
-      } catch (e) {
-        result = {
-          url: urls[i],
-          listings: [],
-          expanded: false,
-          error: String((e as Error).message ?? e),
-          status: "done",
-        };
-      }
-      setRows((prev) => prev.map((r, j) => (j === i ? result : r)));
-    }
-    setRunning(false);
   }
 
   const done = rows.length > 0 && !running;
@@ -122,7 +101,10 @@ export default function AddListingsPage() {
                 : "Ingest"}
           </button>
           {done && (
-            <button onClick={() => router.push("/")}>View listings →</button>
+            <>
+              <button onClick={() => router.push("/")}>View listings →</button>
+              <button onClick={clearIngestRun}>Clear</button>
+            </>
           )}
           <div className="spacer" />
           {rows.length > 0 && (
@@ -147,6 +129,7 @@ export default function AddListingsPage() {
                 <div className="ingest-url">
                   {row.status === "running" && <span className="muted">⏳ </span>}
                   {row.status === "pending" && <span className="muted">· </span>}
+                  {row.status === "abandoned" && <span className="muted">? </span>}
                   {row.url ?? "Pasted job description"}
                 </div>
 
@@ -166,6 +149,13 @@ export default function AddListingsPage() {
                     <span className={`pill ${l.status}`}>{l.status}</span>
                   </div>
                 ))}
+
+                {row.status === "abandoned" && !row.error && (
+                  <div className="muted ingest-error">
+                    Interrupted by a page reload — may or may not have been ingested. Check
+                    Listings, or run it again (re-ingesting is safe).
+                  </div>
+                )}
 
                 {row.error && <div className="error ingest-error">{row.error}</div>}
               </div>
