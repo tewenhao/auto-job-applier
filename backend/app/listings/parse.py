@@ -17,6 +17,7 @@ class ParsedListing(BaseModel):
     location: str | None = None
     jd_summary: str | None = None
     requirements: list[str] = Field(default_factory=list)
+    is_job_posting: bool = True  # False if this is a careers index / landing page
 
 
 _SYSTEM = (
@@ -24,8 +25,15 @@ _SYSTEM = (
     "swe, ml, quant, product, data, hardware, design, other. Classify 'market' as "
     "the country market of the role's location: uk, sg (Singapore), us, cn (China), "
     "or other. Write a tight 'jd_summary' (2-3 sentences) and list the key "
-    "'requirements' (must-have skills/qualifications). Use provided company/title/"
-    "location hints when present; leave a field null if the posting doesn't say."
+    "'requirements' (must-have skills/qualifications). Use the provided company/"
+    "title/location hints when present.\n"
+    "ROLE TITLE: always give a specific 'role_title' for a single posting. If the "
+    "body doesn't state one but a title hint is given, use the hint (cleaned). Only "
+    "leave role_title null if this genuinely isn't one specific role.\n"
+    "PAGE TYPE: set 'is_job_posting' to false if the text is a careers landing page "
+    "or a search-results / index page listing MANY different roles (e.g. one role "
+    "spanning many cities, or a list of openings) rather than one specific posting. "
+    "In that case do not invent a single title. Otherwise leave it true."
 )
 
 

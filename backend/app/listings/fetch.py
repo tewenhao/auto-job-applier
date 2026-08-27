@@ -112,13 +112,55 @@ def fetch_job(url: str) -> FetchedJob:
         data = _get_json(f"https://api.lever.co/v0/postings/{company}/{posting_id}")
         return build_from_lever(data, url=url)
 
-    text = _get_text(url)
+    raw = _get_html(url)
+    text = html_to_text(raw)
     if len(text) < MIN_USABLE_CHARS:
         raise FetchError(
             f"Fetched too little text from {url} (likely a JavaScript-rendered page). "
             "Copy the job description and pass it as text instead of a URL."
         )
-    return FetchedJob(ats=ats, url=url, jd_text=text)
+    # Pull role/company from the page's <title> and Open Graph tags. These feed
+    # the parser as hints and act as a fallback so a generic page doesn't land as
+    # an "Untitled role".
+    meta = _extract_head_meta(raw)
+    return FetchedJob(
+        ats=ats,
+        url=url,
+        company=meta.get("company"),
+        role_title=meta.get("title"),
+        jd_text=text,
+    )
+
+
+_META_TAG = re.compile(r"<meta\b[^>]*>", re.I)
+_META_KEY = re.compile(r"""(?:property|name)=["']([^"']+)["']""", re.I)
+_META_VAL = re.compile(r"""content=["']([^"']*)["']""", re.I)
+_TITLE_TAG = re.compile(r"<title[^>]*>(.*?)</title>", re.I | re.S)
+
+
+def _clean_title(title: str) -> str:
+    """Drop a trailing site-name segment ('Role | Company', 'Role — Careers').
+    Only splits on separators that are almost always site delimiters, never a
+    plain hyphen (which often belongs to the role itself)."""
+    for sep in (" | ", " — ", " – ", " · "):
+        if sep in title:
+            title = title.split(sep)[0]
+    return title.strip()
+
+
+def _extract_head_meta(raw: str) -> dict[str, str | None]:
+    """Best-effort role/company from <title> and og: meta tags."""
+    meta: dict[str, str] = {}
+    for tag in _META_TAG.findall(raw):
+        key = _META_KEY.search(tag)
+        val = _META_VAL.search(tag)
+        if key and val:
+            meta[key.group(1).lower()] = html.unescape(val.group(1)).strip()
+
+    title = meta.get("og:title")
+    if not title and (m := _TITLE_TAG.search(raw)):
+        title = _clean_title(html.unescape(html_to_text(m.group(1))))
+    return {"title": title or None, "company": meta.get("og:site_name") or None}
 
 
 def _iso_date(value: Any) -> date | None:
@@ -137,8 +179,8 @@ def _get_json(url: str) -> dict[str, Any]:
         return resp.json()  # type: ignore[no-any-return]
 
 
-def _get_text(url: str) -> str:
+def _get_html(url: str) -> str:
     with httpx.Client(headers={"User-Agent": USER_AGENT}, timeout=30.0) as client:
         resp = client.get(url, follow_redirects=True)
         resp.raise_for_status()
-        return html_to_text(resp.text)
+        return resp.text

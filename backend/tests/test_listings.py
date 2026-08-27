@@ -6,6 +6,8 @@ from datetime import date
 from uuid import uuid4
 
 from app.listings.fetch import (
+    _clean_title,
+    _extract_head_meta,
     build_from_greenhouse,
     build_from_lever,
     detect_ats,
@@ -20,6 +22,28 @@ from app.listings.score import apply_hard_filters
 from app.profile.models import Preferences
 
 CID = uuid4()
+
+
+# --- HTML metadata extraction (title/company fallback) ---
+def test_extract_head_meta_prefers_og_tags() -> None:
+    html = (
+        "<head><title>SWE Intern - Backend | Acme Careers</title>"
+        '<meta property="og:title" content="SWE Intern - Backend">'
+        '<meta property="og:site_name" content="Acme Corp"></head>'
+    )
+    meta = _extract_head_meta(html)
+    assert meta == {"title": "SWE Intern - Backend", "company": "Acme Corp"}
+
+
+def test_extract_head_meta_falls_back_to_title_tag() -> None:
+    meta = _extract_head_meta("<head><title>Quant Researcher — Jane Street</title></head>")
+    assert meta["title"] == "Quant Researcher"  # site suffix stripped
+    assert meta["company"] is None
+
+
+def test_clean_title_keeps_hyphenated_roles() -> None:
+    assert _clean_title("Backend Engineer - Payments") == "Backend Engineer - Payments"
+    assert _clean_title("Data Analyst | Careers") == "Data Analyst"
 
 
 # --- ATS detection + URL parsing ---

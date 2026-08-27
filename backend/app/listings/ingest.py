@@ -6,7 +6,7 @@ from collections.abc import Iterable
 from uuid import UUID
 
 from app.config import get_settings
-from app.listings.fetch import FetchedJob, fetch_job
+from app.listings.fetch import FetchedJob, FetchError, fetch_job
 from app.listings.models import Listing, ListingSource, ListingStatus, normalize_company
 from app.listings.parse import ParsedListing, parse_listing
 from app.listings.repository import ListingRepository
@@ -92,6 +92,13 @@ class ListingIngestor:
             raise ValueError("Provide either a URL or JD text.")
 
         parsed = parse_listing(self.llm, fetched)
+
+        if not parsed.is_job_posting:
+            raise FetchError(
+                f"{url or 'This text'} looks like a careers index / landing page listing "
+                "many roles, not one posting. Open a specific job and pass that URL."
+            )
+
         listing = build_listing(
             fetched,
             parsed,
@@ -99,6 +106,11 @@ class ListingIngestor:
             source=ListingSource.MANUAL,
             source_name="manual",
         )
+        if not listing.role_title and not listing.company:
+            raise FetchError(
+                f"Couldn't extract a role or company from {url or 'the pasted text'} "
+                "(often a JavaScript-rendered page). Paste the job description text instead."
+            )
         return self.score_and_store(listing, candidate_id=candidate_id)
 
     def score_and_store(self, listing: Listing, *, candidate_id: UUID) -> Listing:
