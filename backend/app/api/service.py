@@ -159,3 +159,34 @@ def ensure_cover_letter_pdf(app: Application) -> Path | None:
     if not app.cover_letter:
         return None
     return cover_letter_pdf_path(_compile_and_store(app, max_pages=1))
+
+
+def commit_master_doc_entry(section: str, markdown: str, *, candidate_id: UUID) -> tuple[str, str]:
+    """Append a reviewed entry to the master-doc, then re-ingest the doc.
+
+    Re-ingesting the whole document (rather than inserting the entry straight
+    into the database) keeps the doc canonical: `ajp ingest --fresh` rebuilds
+    from it, so anything written only to the database would be lost.
+    Deduplication means re-reading the unchanged entries is harmless.
+    """
+    from app.config import get_settings
+    from app.ingestion import Ingestor
+    from app.llm import LLMClient
+    from app.profile.master_doc import append_entry_to_file
+    from app.profile.models import SourceType
+    from app.profile.repository import ProfileRepository
+
+    path = Path(get_settings().master_doc_path)
+    if not path.exists():
+        raise FileNotFoundError(
+            f"No master document at {path}. Set MASTER_DOC_PATH to point at it."
+        )
+
+    append_entry_to_file(path, section, markdown)
+
+    repo = ProfileRepository()
+    ingestor = Ingestor(repo, LLMClient())
+    summary = ingestor.ingest_document(
+        path, SourceType.MASTER_DOC, candidate_id=candidate_id, dedup=True
+    )
+    return str(path), str(summary)

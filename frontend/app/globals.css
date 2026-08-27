@@ -666,3 +666,32 @@ button.mini.danger:hover:not(:disabled) {
   margin-top: 6px;
   font-size: 0.85rem;
 }
+
+/* ---- profile interview ---- */
+.chat {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  max-height: 420px;
+  overflow-y: auto;
+}
+
+.chat-turn {
+  padding: 10px 14px;
+  border-radius: 10px;
+  font-size: 0.93rem;
+  max-width: 85%;
+  white-space: pre-wrap;
+}
+
+.chat-turn.assistant {
+  background: var(--panel-2);
+  border: 1px solid var(--border);
+  align-self: flex-start;
+}
+
+.chat-turn.user {
+  background: var(--accent-weak);
+  color: var(--text);
+  align-self: flex-end;
+}

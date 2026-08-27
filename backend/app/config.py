@@ -71,6 +71,13 @@ class Settings(BaseSettings):
     github_token: str = Field("", description="GitHub personal access token.")
     github_username: str = Field("", description="GitHub username to ingest.")
 
+    # --- Profile ---
+    master_doc_path: str = Field(
+        "candidate-inputs/master-doc.md",
+        description="The master document — the human source of truth. New "
+        "entries captured in the dashboard are written here, then re-ingested.",
+    )
+
     # --- Listings (Module 2) ---
     listing_score_threshold: int = Field(
         60, description="Listings scoring at/above this (0-100) are surfaced."

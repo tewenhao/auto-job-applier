@@ -345,3 +345,43 @@ def test_ingest_failure_is_a_skip_not_a_500() -> None:
 def test_ingest_requires_url_or_text() -> None:
     client = _ingest_client(FakeIngestor([]))
     assert client.post("/api/listings/ingest", json={}).status_code == 400
+
+
+def _profile_client() -> TestClient:
+    app.dependency_overrides[get_profile_repo] = FakeProfileRepo
+    return TestClient(app)
+
+
+def test_commit_profile_entry_writes_and_reingests(monkeypatch) -> None:  # noqa: ANN001
+    from app.api import service
+
+    captured = {}
+
+    def fake_commit(section, markdown, *, candidate_id):  # noqa: ANN001, ANN202
+        captured["section"] = section
+        captured["markdown"] = markdown
+        return "/path/master-doc.md", "1 experience added"
+
+    monkeypatch.setattr(service, "commit_master_doc_entry", fake_commit)
+    client = _profile_client()
+    body = client.post(
+        "/api/profile/entries",
+        json={"section": "experience", "markdown": "### New Role — Org. 2026"},
+    ).json()
+    assert body["master_doc_path"].endswith("master-doc.md")
+    assert body["ingested"] == "1 experience added"
+    # the reviewed markdown is written verbatim — the user edits before saving
+    assert captured["markdown"] == "### New Role — Org. 2026"
+
+
+def test_commit_profile_entry_without_a_master_doc_is_a_400(monkeypatch) -> None:  # noqa: ANN001
+    from app.api import service
+
+    def fake_commit(section, markdown, *, candidate_id):  # noqa: ANN001, ANN202
+        raise FileNotFoundError("No master document at x. Set MASTER_DOC_PATH.")
+
+    monkeypatch.setattr(service, "commit_master_doc_entry", fake_commit)
+    client = _profile_client()
+    resp = client.post("/api/profile/entries", json={"markdown": "### x"})
+    assert resp.status_code == 400
+    assert "MASTER_DOC_PATH" in resp.json()["detail"]

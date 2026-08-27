@@ -86,6 +86,18 @@ export type IngestResult = {
   error: string | null; // a per-URL skip, not a server error
 };
 
+export type InterviewTurn = { role: "assistant" | "user"; content: string };
+
+export type InterviewStep = {
+  question: string | null;
+  ready: boolean;
+  missing: string | null;
+};
+
+export type DraftedEntry = { section: string; markdown: string };
+
+export type CommittedEntry = { master_doc_path: string; ingested: string };
+
 export type Preferences = {
   resume_guidance: string | null;
 };
@@ -165,6 +177,26 @@ export const api = {
     request<IngestResult>("/api/listings/ingest", {
       method: "POST",
       body: JSON.stringify(body),
+    }),
+
+  getProfile: () => request<{ markdown: string }>("/api/profile"),
+
+  interviewNext: (transcript: InterviewTurn[]) =>
+    request<InterviewStep>("/api/profile/interview", {
+      method: "POST",
+      body: JSON.stringify({ transcript }),
+    }),
+
+  interviewDraft: (transcript: InterviewTurn[]) =>
+    request<DraftedEntry>("/api/profile/interview/draft", {
+      method: "POST",
+      body: JSON.stringify({ transcript }),
+    }),
+
+  commitEntry: (section: string, markdown: string) =>
+    request<CommittedEntry>("/api/profile/entries", {
+      method: "POST",
+      body: JSON.stringify({ section, markdown }),
     }),
 
   getPreferences: () => request<Preferences>("/api/preferences"),

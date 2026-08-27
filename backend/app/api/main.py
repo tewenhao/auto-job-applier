@@ -23,10 +23,15 @@ from app.api.schemas import (
     ApplicationDetail,
     ApplicationSummary,
     ApproveRequest,
+    CommitEntryRequest,
+    CommitEntryResponse,
     CoverLetterUpdate,
+    DraftResponse,
     GenerateRequest,
     IngestRequest,
     IngestResult,
+    InterviewRequest,
+    InterviewStepResponse,
     ListingSummary,
     Preferences,
     PreferencesUpdate,
@@ -86,6 +91,67 @@ def update_preferences(
         prefs.extra = {k: v for k, v in prefs.extra.items() if k != RESUME_GUIDANCE_KEY}
     saved = profiles.set_preferences(prefs)
     return Preferences(resume_guidance=saved.extra.get(RESUME_GUIDANCE_KEY) or None)
+
+
+@app.get("/api/profile")
+def get_profile(profiles: ProfileRepository = Depends(get_profile_repo)) -> dict[str, str]:
+    """The whole profile as readable Markdown (same view as `ajp profile show`)."""
+    from app.profile.markdown import profile_to_markdown
+
+    candidate = profiles.get_or_create_default_candidate()
+    assert candidate.id is not None
+    return {"markdown": profile_to_markdown(profiles.get_master_profile(candidate.id))}
+
+
+@app.post("/api/profile/interview", response_model=InterviewStepResponse)
+def profile_interview(
+    body: InterviewRequest,
+    profiles: ProfileRepository = Depends(get_profile_repo),
+) -> InterviewStepResponse:
+    """The next interview question about a new entry, or ready when there's
+    enough to draft one."""
+    from app.llm import LLMClient
+    from app.profile.interview import next_step
+    from app.profile.markdown import profile_to_markdown
+
+    candidate = profiles.get_or_create_default_candidate()
+    assert candidate.id is not None
+    existing = profile_to_markdown(profiles.get_master_profile(candidate.id))
+    step = next_step(
+        LLMClient(),
+        [t.model_dump() for t in body.transcript],
+        profile_markdown=existing,
+    )
+    return InterviewStepResponse(
+        question=step.question, ready=step.ready, missing=step.missing
+    )
+
+
+@app.post("/api/profile/interview/draft", response_model=DraftResponse)
+def profile_interview_draft(body: InterviewRequest) -> DraftResponse:
+    """Draft the master-doc entry from the transcript, for the user to review."""
+    from app.llm import LLMClient
+    from app.profile.interview import draft_entry
+
+    drafted = draft_entry(LLMClient(), [t.model_dump() for t in body.transcript])
+    return DraftResponse(section=drafted.section, markdown=drafted.markdown)
+
+
+@app.post("/api/profile/entries", response_model=CommitEntryResponse)
+def commit_profile_entry(
+    body: CommitEntryRequest,
+    profiles: ProfileRepository = Depends(get_profile_repo),
+) -> CommitEntryResponse:
+    """Write the reviewed entry into the master-doc and re-ingest it."""
+    candidate = profiles.get_or_create_default_candidate()
+    assert candidate.id is not None
+    try:
+        path, summary = service.commit_master_doc_entry(
+            body.section, body.markdown, candidate_id=candidate.id
+        )
+    except FileNotFoundError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+    return CommitEntryResponse(master_doc_path=path, ingested=summary)
 
 
 @app.get("/api/health")

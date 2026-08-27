@@ -144,3 +144,36 @@ class IngestResult(BaseModel):
     # Ingestion failures are per-URL outcomes (like the CLI's "skip"), not
     # server errors, so they come back in the body rather than as a 4xx.
     error: str | None = None
+
+
+class InterviewTurn(BaseModel):
+    role: str  # "assistant" (a question) or "user" (an answer)
+    content: str
+
+
+class InterviewRequest(BaseModel):
+    transcript: list[InterviewTurn] = Field(default_factory=list)
+
+
+class InterviewStepResponse(BaseModel):
+    question: str | None = None
+    ready: bool = False
+    missing: str | None = None
+
+
+class DraftResponse(BaseModel):
+    section: str = "experience"
+    markdown: str
+
+
+class CommitEntryRequest(BaseModel):
+    """The reviewed entry to write. The user can edit `markdown` first — the
+    master-doc is theirs, so nothing is written without them seeing it."""
+
+    section: str = "experience"
+    markdown: str
+
+
+class CommitEntryResponse(BaseModel):
+    master_doc_path: str
+    ingested: str  # a human-readable summary of what the re-ingest found
