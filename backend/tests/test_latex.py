@@ -187,26 +187,66 @@ def _resume_for_trim() -> TailoredResume:
     )
 
 
-def test_trim_drops_whole_projects_before_experiences_before_shaving() -> None:
-    # 4 experiences + 3 projects, all with full bullets. Whole projects go first
-    # (weakest last), then whole experiences — no bullet is shaved while entries
-    # remain, so survivors keep their numbers and elaboration.
+def test_trim_merges_then_thins_then_drops_whole_entries() -> None:
+    """The ladder is ordered by cost to the reader: a free merge, then thinning
+    the fattest entry, and only then deleting whole entries."""
+    long_bullet = "x" * 90  # too long to pair with anything on one line
     r = TailoredResume(
-        experience=[ExperienceEntry(title=t, bullets=["1", "2", "3"]) for t in "ABCD"],
-        projects=[ProjectEntry(name=f"P{i}", bullets=["x", "y"]) for i in range(1, 4)],
+        experience=[
+            ExperienceEntry(title=t, bullets=[long_bullet, long_bullet, long_bullet])
+            for t in "ABCD"
+        ],
+        projects=[ProjectEntry(name=f"P{i}", bullets=[long_bullet]) for i in range(1, 4)],
     )
+    # Nothing is mergeable, so the fattest entry is thinned first (3 -> 2),
+    # not a whole entry deleted.
     r1, n1 = trim_one_step(r)  # type: ignore[misc]
-    assert n1.startswith("dropped project 'P3'")  # weakest (last) project first
+    assert n1.startswith("dropped a bullet from")
+    assert len(r1.experience) == 4 and len(r1.projects) == 3
+
+    # Once every entry is at the rich floor, whole projects go (weakest first).
+    while True:
+        nxt = trim_one_step(r1)  # type: ignore[misc]
+        assert nxt is not None
+        r1, note = nxt
+        if note.startswith("dropped project"):
+            break
+        assert note.startswith("dropped a bullet from")
+    assert all(len(e.bullets) == 2 for e in r1.experience)
     assert len(r1.projects) == 2
-    # Nothing shaved: every surviving entry keeps all its bullets.
-    assert all(len(e.bullets) == 3 for e in r1.experience)
 
-    r2, n2 = trim_one_step(r1)  # type: ignore[misc]
-    assert n2.startswith("dropped project 'P2'")  # projects continue down to the floor of 1
 
-    r3, n3 = trim_one_step(r2)  # type: ignore[misc]
-    assert n3.startswith("dropped experience 'D'")  # only then whole experiences
-    assert len(r3.projects) == 1 and all(len(e.bullets) == 3 for e in r3.experience)
+def test_trim_merges_short_bullets_before_losing_anything() -> None:
+    """Two short bullets that fit one line together are merged, not dropped:
+    a line is saved and no content is lost."""
+    r = TailoredResume(
+        experience=[
+            ExperienceEntry(title="A", bullets=["Built the parser", "Shipped it to 3 teams"])
+        ],
+        projects=[],
+    )
+    trimmed, note = trim_one_step(r)  # type: ignore[misc]
+    assert note.startswith("merged two bullets in 'A'")
+    assert len(trimmed.experience[0].bullets) == 1
+    merged = trimmed.experience[0].bullets[0]
+    assert "Built the parser" in merged and "Shipped it to 3 teams" in merged
+
+
+def test_trim_shaves_the_least_informative_bullet_first() -> None:
+    """A bullet carrying a figure outlives one that is prose."""
+    figures = "Cut p99 latency by 43% across " + "y" * 70
+    prose = "Worked with the team on assorted improvements " + "z" * 60
+    r = TailoredResume(
+        experience=[
+            ExperienceEntry(title="A", bullets=[figures, prose, figures]),
+            ExperienceEntry(title="B", bullets=[figures]),
+        ],
+        projects=[],
+    )
+    trimmed, note = trim_one_step(r)  # type: ignore[misc]
+    assert note.startswith("dropped a bullet from 'A'")
+    assert prose not in trimmed.experience[0].bullets
+    assert trimmed.experience[0].bullets.count(figures) == 2
 
 
 def test_trim_shaves_only_at_floors_then_stops() -> None:

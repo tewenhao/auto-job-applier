@@ -244,38 +244,72 @@ def _weakest_index(labels: list[str], ranking: list[RankedItem], kind: str) -> i
     return min(scored, key=lambda pair: (pair[0], -pair[1]))[1]
 
 
+# A rendered bullet line holds roughly this many characters: \textwidth is
+# ~7.5in at \small in the template. Merging two bullets only saves a line when
+# the result still fits on one — beyond that it just re-wraps.
+ONE_LINE_CHARS = 110
+
+
+def _plain(text: str) -> str:
+    """Bullet length as rendered — the ``**`` emphasis markers don't print."""
+    return text.replace("**", "")
+
+
+def _bullet_value(bullet: str) -> tuple[int, int]:
+    """How much a bullet is worth keeping: a concrete figure beats prose, and
+    among equals the longer bullet says more."""
+    return (1 if re.search(r"\d", bullet) else 0, len(_plain(bullet)))
+
+
+def _mergeable(entry: ExperienceEntry | ProjectEntry) -> int | None:
+    """Index of the first of an adjacent pair that would still fit one line."""
+    best_index, best_len = None, ONE_LINE_CHARS + 1
+    for i in range(len(entry.bullets) - 1):
+        combined = len(_plain(entry.bullets[i])) + len(_plain(entry.bullets[i + 1])) + 1
+        if combined <= ONE_LINE_CHARS and combined < best_len:
+            best_index, best_len = i, combined
+    return best_index
+
+
+def _join(first: str, second: str) -> str:
+    """Two bullets as one. Keep both sentences intact so nothing is reworded."""
+    first = first.rstrip()
+    if not first.endswith((".", "!", "?", ";")):
+        first += "."
+    return f"{first} {second}"
+
+
 def trim_one_step(
     resume: TailoredResume,
     *,
     min_projects: int = 1,
     min_experiences: int = 2,
+    rich_bullets: int = 2,
 ) -> tuple[TailoredResume, str] | None:
-    """Return a copy of ``resume`` with the single least-valuable item removed,
-    plus a short description — or ``None`` when nothing more can go.
+    """Return a copy of ``resume`` with one trim applied and a short description
+    of it — or ``None`` when nothing more can go.
 
-    Drop WHOLE entries before shaving any bullet, so the entries that survive keep
-    their numbers and full elaboration rather than everything going thin. Projects
-    are lighter signals than experiences, so they go first. "Weakest" means the
-    lowest score in ``resume.ranking`` — the same scores steering moves — so an
-    item the user steered up is not cut just because of where it sits in the
-    list. Escalation:
+    Steps are ordered by how much they cost the reader, cheapest first, rather
+    than treating whole entries and bullets as strictly ranked:
 
-    1. drop the weakest project, down to ``min_projects``;
-    2. drop the weakest experience, down to ``min_experiences``;
-    3. only now, as a last resort, shave a bullet from the fattest entry;
-    4. drop remaining projects, then experiences, toward the bare minimum.
+    1. merge two short bullets that still fit one line — saves a line, loses
+       nothing;
+    2. drop an entry's least informative bullet (prose before figures) while it
+       still has ``rich_bullets``, so entries thin out before any is deleted;
+    3. drop the weakest whole project, down to ``min_projects``;
+    4. drop the weakest whole experience, down to ``min_experiences``;
+    5. keep shaving bullets toward one each;
+    6. drop what remains, projects before experiences.
+
+    "Weakest" is the lowest score in ``resume.ranking`` — the same scores
+    steering moves — so a steered-up item is not cut for sitting late in a list.
     """
     r = resume.model_copy(deep=True)
+    entries: list[ExperienceEntry | ProjectEntry] = [*r.experience, *r.projects]
 
-    def _fattest(floor: int) -> ExperienceEntry | ProjectEntry | None:
-        entries: list[ExperienceEntry | ProjectEntry] = [*r.experience, *r.projects]
-        best: ExperienceEntry | ProjectEntry | None = None
-        for entry in entries:
-            if len(entry.bullets) > floor and (
-                best is None or len(entry.bullets) > len(best.bullets)
-            ):
-                best = entry
-        return best
+    def _label(entry: ExperienceEntry | ProjectEntry) -> str:
+        name = entry.title if isinstance(entry, ExperienceEntry) else entry.name
+        return name or "an entry"
 
     def _drop_project(index: int) -> tuple[TailoredResume, str]:
         gone = r.projects.pop(index)
@@ -288,20 +322,47 @@ def trim_one_step(
         score = _ranked_score(label, r.ranking, "experience", index)
         return r, f"dropped experience '{gone.title}' (rank {score})"
 
-    # 1) Drop the weakest project (whole), keeping a floor.
+    def _shave(floor: int) -> tuple[TailoredResume, str] | None:
+        """Drop the least informative bullet from the entry carrying the most."""
+        fattest = max(
+            (e for e in entries if len(e.bullets) > floor),
+            key=lambda e: len(e.bullets),
+            default=None,
+        )
+        if fattest is None:
+            return None
+        i = min(
+            range(len(fattest.bullets)),
+            key=lambda j: (_bullet_value(fattest.bullets[j]), -j),
+        )
+        fattest.bullets.pop(i)
+        return r, f"dropped a bullet from '{_label(fattest)}'"
+
+    # 1) Free: merge two short bullets into one line.
+    for entry in entries:
+        pair = _mergeable(entry)
+        if pair is not None:
+            entry.bullets[pair] = _join(entry.bullets[pair], entry.bullets[pair + 1])
+            entry.bullets.pop(pair + 1)
+            return r, f"merged two bullets in '{_label(entry)}'"
+
+    # 2) Thin the fattest entry before deleting anything outright.
+    shaved = _shave(rich_bullets)
+    if shaved is not None:
+        return shaved
+
+    # 3) Drop the weakest project (whole), keeping a floor.
     if len(r.projects) > min_projects:
         return _drop_project(_weakest_index([p.name for p in r.projects], r.ranking, "project"))
-    # 2) Drop the weakest experience (whole), keeping a floor.
+    # 4) Drop the weakest experience (whole), keeping a floor.
     if len(r.experience) > min_experiences:
         labels = [f"{e.title} {e.org}".strip() for e in r.experience]
         return _drop_experience(_weakest_index(labels, r.ranking, "experience"))
-    # 3) Last resort — shave a bullet from the fattest entry (keep >= 1 bullet).
-    fat = _fattest(1)
-    if fat is not None:
-        fat.bullets.pop()
-        label = getattr(fat, "title", None) or getattr(fat, "name", "an entry")
-        return r, f"dropped a bullet from '{label}'"
-    # 4) Nothing left to shave — drop remaining projects, then experiences.
+    # 5) Keep shaving toward one bullet each.
+    shaved = _shave(1)
+    if shaved is not None:
+        return shaved
+    # 6) Nothing left to shave — drop remaining projects, then experiences.
     if r.projects:
         return _drop_project(_weakest_index([p.name for p in r.projects], r.ranking, "project"))
     if len(r.experience) > 1:
