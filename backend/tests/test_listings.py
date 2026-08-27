@@ -323,6 +323,33 @@ def test_oracle_site_number_prefers_url_name_and_active(monkeypatch) -> None:  #
     assert d._oracle_site_number("h", "BNY-Careers") == "CX_3001"
 
 
+def test_oracle_site_number_accepts_site_number_in_path(monkeypatch) -> None:  # noqa: ANN001
+    """Some tenants put the SiteNumber itself in the URL (DTCC: .../sites/CX_1),
+    and several inactive sites can share a name."""
+    import app.listings.discover as d
+
+    sites = {
+        "items": [
+            {"SiteNumber": "CX_6001", "SiteName": "DTCC CE Site", "StatusCode": "ORA_INACTIVE"},
+            {"SiteNumber": "CX_1", "SiteName": "DTCC CE Site", "StatusCode": "ORA_ACTIVE"},
+        ]
+    }
+    monkeypatch.setattr(d, "_get", lambda url: sites)
+    assert d._oracle_site_number("h", "CX_1") == "CX_1"
+
+
+def test_eightfold_domain_derivation() -> None:
+    from app.listings.discover import _eightfold_domain
+
+    assert _eightfold_domain("campusjobs.mlp.com", "") == "mlp.com"
+    # tenant hosted on Eightfold itself
+    assert _eightfold_domain("mlp.eightfold.ai", "") == "mlp.com"
+    # multi-part country TLD
+    assert _eightfold_domain("careers.acme.co.uk", "") == "acme.co.uk"
+    # an explicit ?domain= always wins
+    assert _eightfold_domain("anything.com", "domain=given.com") == "given.com"
+
+
 # --- ATS detection + URL parsing ---
 def test_detect_ats() -> None:
     assert detect_ats("https://boards.greenhouse.io/acme/jobs/123") == "greenhouse"

@@ -169,9 +169,9 @@ def _oracle_site_number(host: str, site: str) -> str | None:
         number = item.get("SiteNumber") or item.get("Number")
         return str(number) if number else None
 
-    # SiteURLName is the segment that appears in the careers URL; it is the only
-    # reliable key (SiteName is a human label, and inactive decoy sites exist).
-    for key in ("SiteURLName", "SiteName", "SiteCode"):
+    # Tenants differ: some put a friendly SiteURLName in the path ("BNY-Careers"),
+    # others the SiteNumber itself ("CX_1"). Try each key, most specific first.
+    for key in ("SiteURLName", "SiteNumber", "SiteName", "SiteCode"):
         matches = [i for i in items if (i.get(key) or "").casefold() == wanted]
         # Prefer an active site when several share a name.
         matches.sort(key=lambda i: i.get("StatusCode") != "ORA_ACTIVE")
@@ -280,6 +280,28 @@ def enumerate_index_page(url: str, html: str) -> list[FetchedJob]:
     return []
 
 
+# Country-code second-level domains, so careers.acme.co.uk -> acme.co.uk.
+_MULTI_TLDS = frozenset(
+    {"co.uk", "com.au", "co.jp", "co.in", "com.sg", "co.nz", "com.br", "co.za", "com.hk"}
+)
+
+
+def _eightfold_domain(host: str, query: str) -> str:
+    """The tenant key Eightfold expects: the employer's registrable domain."""
+    explicit = parse_qs(query).get("domain")
+    if explicit:
+        return explicit[0]
+    labels = host.split(".")
+    if host.endswith(".eightfold.ai"):
+        # Tenant hosted on Eightfold itself (mlp.eightfold.ai): the first label
+        # is the employer, whose domain the API keys on.
+        return f"{labels[0]}.com"
+    tail = ".".join(labels[-2:])
+    if tail in _MULTI_TLDS and len(labels) >= 3:
+        return ".".join(labels[-3:])
+    return tail
+
+
 # --- Eightfold AI (/api/apply/v2/jobs) ---
 def enumerate_eightfold(url: str, html: str, filters: BoardFilters) -> list[FetchedJob]:
     parts = urlparse(url)
@@ -287,9 +309,7 @@ def enumerate_eightfold(url: str, html: str, filters: BoardFilters) -> list[Fetc
     if not host:
         return []
     origin = f"{parts.scheme or 'https'}://{host}"
-    # Eightfold sites carry their tenant as a ?domain= param; otherwise derive it
-    # from the host (campusjobs.mlp.com -> mlp.com).
-    domain = (parse_qs(parts.query).get("domain") or [".".join(host.split(".")[-2:])])[0]
+    domain = _eightfold_domain(host, parts.query)
     query = " ".join(filters.keywords)
     search = (
         f"{origin}/api/apply/v2/jobs?domain={domain}&start=0"
