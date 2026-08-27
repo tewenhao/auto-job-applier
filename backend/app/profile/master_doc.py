@@ -68,3 +68,76 @@ def append_entry_to_file(path: str | Path, section: str, entry: str) -> Path:
     p.with_suffix(p.suffix + ".bak").write_text(original, encoding="utf-8")
     p.write_text(append_entry(original, section, entry), encoding="utf-8")
     return p
+
+
+def list_entries(text: str) -> list[dict[str, str]]:
+    """Every ``###`` entry in the doc, with the section it sits in.
+
+    Editing works on these blocks rather than on database rows: the doc is the
+    source of truth, so a change here survives the next ingest (and `--fresh`).
+    """
+    entries: list[dict[str, str]] = []
+    section = ""
+    lines = text.splitlines()
+    start: int | None = None
+
+    def _flush(end: int) -> None:
+        if start is None:
+            return
+        block = "\n".join(lines[start:end]).rstrip()
+        if block.strip():
+            entries.append(
+                {
+                    "section": section,
+                    "heading": lines[start].removeprefix("###").strip(),
+                    "markdown": block,
+                }
+            )
+
+    for i, line in enumerate(lines):
+        if line.startswith("## "):
+            _flush(i)
+            start = None
+            section = line.removeprefix("##").strip()
+        elif line.startswith("### "):
+            _flush(i)
+            start = i
+    _flush(len(lines))
+    return entries
+
+
+def replace_entry(text: str, heading: str, replacement: str) -> str:
+    """Replace (or, with an empty ``replacement``, delete) one ``###`` entry.
+
+    Matching is on the exact heading line, which is the entry's identity in the
+    master-doc format.
+    """
+    lines = text.splitlines()
+    target = heading.strip()
+    start = next(
+        (
+            i
+            for i, ln in enumerate(lines)
+            if ln.startswith("### ") and ln.removeprefix("###").strip() == target
+        ),
+        None,
+    )
+    if start is None:
+        raise KeyError(heading)
+    end = len(lines)
+    for j in range(start + 1, len(lines)):
+        if lines[j].startswith("### ") or lines[j].startswith("## "):
+            end = j
+            break
+    body = replacement.strip("\n")
+    kept = lines[:start] + ([body] if body else []) + lines[end:]
+    return re.sub(r"\n{3,}", "\n\n", "\n".join(kept)).rstrip() + "\n"
+
+
+def edit_entry_in_file(path: str | Path, heading: str, replacement: str) -> Path:
+    """Apply an entry edit/deletion to the master-doc, keeping a .bak."""
+    p = Path(path)
+    original = p.read_text(encoding="utf-8")
+    p.with_suffix(p.suffix + ".bak").write_text(original, encoding="utf-8")
+    p.write_text(replace_entry(original, heading, replacement), encoding="utf-8")
+    return p

@@ -101,6 +101,15 @@ export type DraftedEntry = { section: string; markdown: string };
 
 export type CommittedEntry = { master_doc_path: string; ingested: string };
 
+export type MasterDocEntry = { section: string; heading: string; markdown: string };
+
+export type IngestSummary = {
+  filename?: string;
+  username?: string;
+  source_type?: string;
+  summary: Record<string, number>;
+};
+
 export type Preferences = {
   resume_guidance: string | null;
 };
@@ -204,6 +213,31 @@ export const api = {
       method: "POST",
       body: JSON.stringify({ section, markdown, session_id: session_id ?? null }),
     }),
+
+  listEntries: () => request<MasterDocEntry[]>("/api/profile/entries"),
+
+  // An empty `markdown` deletes the entry from the master-doc.
+  editEntry: (heading: string, markdown: string) =>
+    request<CommittedEntry>("/api/profile/entries", {
+      method: "PUT",
+      body: JSON.stringify({ heading, markdown }),
+    }),
+
+  ingestDocument: async (file: File, source_type: string) => {
+    const form = new FormData();
+    form.append("file", file);
+    form.append("source_type", source_type);
+    // No Content-Type header: the browser sets the multipart boundary.
+    const res = await fetch(`${API_BASE}/api/profile/ingest`, { method: "POST", body: form });
+    if (!res.ok) {
+      const detail = await res.json().catch(() => null);
+      throw new Error(`${res.status}: ${detail?.detail ?? res.statusText}`);
+    }
+    return (await res.json()) as IngestSummary;
+  },
+
+  ingestGithub: () =>
+    request<IngestSummary>("/api/profile/ingest/github", { method: "POST" }),
 
   getPreferences: () => request<Preferences>("/api/preferences"),
 

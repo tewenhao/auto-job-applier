@@ -8,7 +8,7 @@ from __future__ import annotations
 
 from uuid import UUID
 
-from fastapi import Depends, FastAPI, HTTPException
+from fastapi import Depends, FastAPI, File, Form, HTTPException, UploadFile
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import FileResponse
 
@@ -27,6 +27,7 @@ from app.api.schemas import (
     CommitEntryResponse,
     CoverLetterUpdate,
     DraftResponse,
+    EditEntryRequest,
     GenerateRequest,
     IngestRequest,
     IngestResult,
@@ -34,6 +35,7 @@ from app.api.schemas import (
     InterviewStepResponse,
     InterviewTurn,
     ListingSummary,
+    MasterDocEntry,
     Preferences,
     PreferencesUpdate,
     RegenerateRequest,
@@ -102,6 +104,105 @@ def get_profile(profiles: ProfileRepository = Depends(get_profile_repo)) -> dict
     candidate = profiles.get_or_create_default_candidate()
     assert candidate.id is not None
     return {"markdown": profile_to_markdown(profiles.get_master_profile(candidate.id))}
+
+
+@app.get("/api/profile/entries", response_model=list[MasterDocEntry])
+def list_profile_entries() -> list[MasterDocEntry]:
+    """The master-doc's entries, so they can be reviewed and edited."""
+    try:
+        return [MasterDocEntry(**e) for e in service.list_master_doc_entries()]
+    except FileNotFoundError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+
+
+@app.put("/api/profile/entries")
+def edit_profile_entry(
+    body: EditEntryRequest,
+    profiles: ProfileRepository = Depends(get_profile_repo),
+) -> CommitEntryResponse:
+    """Edit or delete one master-doc entry, then re-ingest."""
+    candidate = profiles.get_or_create_default_candidate()
+    assert candidate.id is not None
+    try:
+        path, summary = service.edit_master_doc_entry(
+            body.heading, body.markdown, candidate_id=candidate.id
+        )
+    except FileNotFoundError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+    except KeyError as exc:
+        raise HTTPException(status_code=404, detail=str(exc)) from exc
+    return CommitEntryResponse(master_doc_path=path, ingested=summary)
+
+
+@app.post("/api/profile/ingest")
+def ingest_profile_document(
+    file: UploadFile = File(...),
+    source_type: str = Form("resume"),
+    profiles: ProfileRepository = Depends(get_profile_repo),
+) -> dict[str, object]:
+    """Ingest an uploaded resume / essay / cover letter / master-doc.
+
+    The same pipeline as `ajp ingest`, with dedup on, so re-uploading a document
+    updates rather than duplicating. LinkedIn exports are deliberately not here:
+    they are large zips better handled by the CLI.
+    """
+    import shutil
+    import tempfile
+    from pathlib import Path as _Path
+
+    from app.ingestion import Ingestor
+    from app.ingestion.documents import SUPPORTED_SUFFIXES
+    from app.llm import LLMClient
+    from app.profile.models import SourceType
+
+    try:
+        kind = SourceType(source_type)
+    except ValueError as exc:
+        raise HTTPException(
+            status_code=400, detail=f"Unknown source type '{source_type}'."
+        ) from exc
+    if kind is SourceType.LINKEDIN_EXPORT:
+        raise HTTPException(
+            status_code=400, detail="Use `ajp ingest --linkedin` for LinkedIn exports."
+        )
+
+    name = _Path(file.filename or "upload.txt").name
+    if _Path(name).suffix.lower() not in SUPPORTED_SUFFIXES:
+        raise HTTPException(
+            status_code=400,
+            detail=f"Unsupported file type. Accepted: {', '.join(sorted(SUPPORTED_SUFFIXES))}.",
+        )
+
+    candidate = profiles.get_or_create_default_candidate()
+    assert candidate.id is not None
+    with tempfile.TemporaryDirectory() as tmp:
+        dest = _Path(tmp) / name
+        with dest.open("wb") as out:
+            shutil.copyfileobj(file.file, out)
+        summary = Ingestor(profiles, LLMClient()).ingest_document(
+            dest, kind, candidate_id=candidate.id, dedup=True
+        )
+    return {"filename": name, "source_type": kind.value, "summary": summary}
+
+
+@app.post("/api/profile/ingest/github")
+def ingest_profile_github(
+    profiles: ProfileRepository = Depends(get_profile_repo),
+) -> dict[str, object]:
+    """Pull GitHub repo metadata, using GITHUB_USERNAME / GITHUB_TOKEN."""
+    from app.config import get_settings
+    from app.ingestion import Ingestor
+    from app.llm import LLMClient
+
+    settings = get_settings()
+    if not settings.github_username:
+        raise HTTPException(status_code=400, detail="GITHUB_USERNAME is not set in .env.")
+    candidate = profiles.get_or_create_default_candidate()
+    assert candidate.id is not None
+    summary = Ingestor(profiles, LLMClient()).ingest_github(
+        settings.github_username, settings.github_token or None, candidate_id=candidate.id
+    )
+    return {"username": settings.github_username, "summary": summary}
 
 
 @app.get("/api/profile/interview", response_model=InterviewStepResponse)

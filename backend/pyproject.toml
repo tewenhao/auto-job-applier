@@ -15,6 +15,7 @@ dependencies = [
     "python-docx>=1.1",
     "fastapi>=0.115",
     "uvicorn>=0.30",
+    "python-multipart>=0.0.9",  # file uploads for dashboard ingestion
 ]
 
 [project.optional-dependencies]
@@ -49,7 +50,7 @@ select = ["E", "F", "I", "UP", "B"]
 # FastAPI's dependency-injection idiom puts Depends()/Query() calls in argument
 # defaults; that is the intended usage, not the B008 antipattern.
 [tool.ruff.lint.flake8-bugbear]
-extend-immutable-calls = ["fastapi.Depends", "fastapi.Query"]
+extend-immutable-calls = ["fastapi.Depends", "fastapi.Query", "fastapi.File", "fastapi.Form"]
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]

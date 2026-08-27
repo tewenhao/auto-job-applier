@@ -54,3 +54,46 @@ def test_existing_entries_are_never_disturbed() -> None:
     out = append_entry(DOC, "experience", ENTRY)
     for line in ("## motivations/goals", "why i do things", "### a project", "### Uni"):
         assert line in out
+
+
+# --- editing / deleting entries (the doc is canonical, so edits happen here) ---
+def test_list_entries_reports_section_and_heading() -> None:
+    from app.profile.master_doc import list_entries
+
+    entries = list_entries(DOC)
+    assert [(e["section"], e["heading"]) for e in entries] == [
+        ("experience", "Old Role — Org, Singapore. Jan 2025 - Feb 2025"),
+        ("current/previous projects", "a project"),
+        ("education", "Uni"),
+    ]
+    assert "did things" in entries[0]["markdown"]
+
+
+def test_replace_entry_edits_only_that_entry() -> None:
+    from app.profile.master_doc import replace_entry
+
+    out = replace_entry(
+        DOC,
+        "Old Role — Org, Singapore. Jan 2025 - Feb 2025",
+        "### New Title — Org, Singapore. Jan 2025 - Mar 2025\n\n**FACTS:**\n- updated",
+    )
+    assert "New Title" in out and "Old Role" not in out
+    assert "### a project" in out and "### Uni" in out  # neighbours untouched
+
+
+def test_empty_replacement_deletes_the_entry() -> None:
+    from app.profile.master_doc import replace_entry
+
+    out = replace_entry(DOC, "a project", "")
+    assert "a project" not in out
+    assert "## current/previous projects" in out  # the section itself survives
+    assert "Old Role" in out and "### Uni" in out
+
+
+def test_replacing_an_unknown_heading_raises() -> None:
+    import pytest
+
+    from app.profile.master_doc import replace_entry
+
+    with pytest.raises(KeyError):
+        replace_entry(DOC, "Nothing Like This", "x")

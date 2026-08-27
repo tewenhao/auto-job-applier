@@ -695,3 +695,18 @@ button.mini.danger:hover:not(:disabled) {
   color: var(--text);
   align-self: flex-end;
 }
+
+.editor-field select {
+  font: inherit;
+  font-size: 0.9rem;
+  color: var(--text);
+  padding: 7px 9px;
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  background: var(--panel);
+}
+
+input[type="file"] {
+  font-size: 0.85rem;
+  color: var(--muted);
+}

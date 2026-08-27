@@ -185,3 +185,17 @@ class CommitEntryRequest(BaseModel):
 class CommitEntryResponse(BaseModel):
     master_doc_path: str
     ingested: str  # a human-readable summary of what the re-ingest found
+
+
+class MasterDocEntry(BaseModel):
+    section: str
+    heading: str
+    markdown: str
+
+
+class EditEntryRequest(BaseModel):
+    """Replace an entry, identified by its heading line. An empty `markdown`
+    deletes it — the entry is removed from the master-doc itself."""
+
+    heading: str
+    markdown: str = ""

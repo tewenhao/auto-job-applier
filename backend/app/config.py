@@ -10,6 +10,7 @@ from __future__ import annotations
 
 from enum import StrEnum
 from functools import lru_cache
+from pathlib import Path
 
 from pydantic import Field
 from pydantic_settings import BaseSettings, SettingsConfigDict
@@ -92,6 +93,21 @@ class Settings(BaseSettings):
         description="Optional chromium path for Playwright (e.g. a preinstalled "
         "build); empty uses Playwright's managed browser.",
     )
+
+    def resolved_master_doc_path(self) -> Path:
+        """The master-doc as an absolute path.
+
+        A relative setting is tried against the working directory first, then
+        the repository root — the CLI and `ajp serve` are usually run from
+        ``backend/``, while the default path is written from the repo root.
+        """
+        raw = Path(self.master_doc_path).expanduser()
+        if raw.is_absolute():
+            return raw
+        if raw.exists():
+            return raw.resolve()
+        repo_root = Path(__file__).resolve().parents[2]
+        return (repo_root / raw).resolve()
 
     def model_for(self, task: Task) -> str:
         """Return the configured model id for a given task."""

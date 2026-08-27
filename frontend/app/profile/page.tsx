@@ -1,7 +1,14 @@
 "use client";
 
 import { useEffect, useRef, useState } from "react";
-import { api, type InterviewTurn } from "@/lib/api";
+import { api, type InterviewTurn, type MasterDocEntry } from "@/lib/api";
+
+const SOURCE_TYPES = [
+  { value: "resume", label: "Résumé" },
+  { value: "cover_letter", label: "Cover letter" },
+  { value: "essay", label: "Essay" },
+  { value: "master_doc", label: "Master doc" },
+];
 
 type Phase = "idle" | "interviewing" | "review" | "saved";
 
@@ -18,6 +25,17 @@ export default function ProfilePage() {
   const [section, setSection] = useState("experience");
   const [markdown, setMarkdown] = useState("");
   const [saved, setSaved] = useState<{ path: string; ingested: string } | null>(null);
+
+  // Documents & GitHub
+  const [sourceType, setSourceType] = useState("resume");
+  const [ingesting, setIngesting] = useState(false);
+  const [ingestNote, setIngestNote] = useState<string | null>(null);
+  const fileRef = useRef<HTMLInputElement>(null);
+
+  // Master-doc entries
+  const [entries, setEntries] = useState<MasterDocEntry[] | null>(null);
+  const [editing, setEditing] = useState<MasterDocEntry | null>(null);
+  const [editText, setEditText] = useState("");
 
   const endRef = useRef<HTMLDivElement>(null);
 
@@ -44,6 +62,75 @@ export default function ProfilePage() {
   useEffect(() => {
     endRef.current?.scrollIntoView({ behavior: "smooth" });
   }, [transcript, phase]);
+
+  const loadEntries = () =>
+    api
+      .listEntries()
+      .then(setEntries)
+      .catch((e) => setError(String(e.message ?? e)));
+
+  useEffect(() => {
+    loadEntries();
+  }, []);
+
+  async function refreshProfile() {
+    const p = await api.getProfile();
+    setProfile(p.markdown);
+    await loadEntries();
+  }
+
+  async function upload(file: File) {
+    setIngesting(true);
+    setIngestNote(null);
+    setError(null);
+    try {
+      const res = await api.ingestDocument(file, sourceType);
+      const counts = Object.entries(res.summary)
+        .map(([k, v]) => `${v} ${k.replace(/_/g, " ")}`)
+        .join(", ");
+      setIngestNote(`Ingested ${res.filename}: ${counts}`);
+      await refreshProfile();
+    } catch (e) {
+      setError(String((e as Error).message ?? e));
+    } finally {
+      setIngesting(false);
+      if (fileRef.current) fileRef.current.value = "";
+    }
+  }
+
+  async function pullGithub() {
+    setIngesting(true);
+    setIngestNote(null);
+    setError(null);
+    try {
+      const res = await api.ingestGithub();
+      const counts = Object.entries(res.summary)
+        .map(([k, v]) => `${v} ${k}`)
+        .join(", ");
+      setIngestNote(`Pulled @${res.username}: ${counts}`);
+      await refreshProfile();
+    } catch (e) {
+      setError(String((e as Error).message ?? e));
+    } finally {
+      setIngesting(false);
+    }
+  }
+
+  async function saveEntry(remove = false) {
+    if (!editing) return;
+    if (remove && !confirm(`Remove "${editing.heading}" from the master document?`)) return;
+    setBusy(true);
+    setError(null);
+    try {
+      await api.editEntry(editing.heading, remove ? "" : editText);
+      setEditing(null);
+      await refreshProfile();
+    } catch (e) {
+      setError(String((e as Error).message ?? e));
+    } finally {
+      setBusy(false);
+    }
+  }
 
   async function step(answer?: string, fresh = false) {
     setBusy(true);
@@ -102,6 +189,48 @@ export default function ProfilePage() {
         Everything your résumés and cover letters are written from. To add something new, talk it
         through below — the entry is written into your master document, so a re-ingest keeps it.
       </p>
+
+      {/* ---- documents ---- */}
+      <h2>Documents</h2>
+      <section className="panel">
+        <p className="muted" style={{ marginTop: 0, fontSize: "0.9rem" }}>
+          Ingest a résumé, cover letter, essay or master doc (PDF, DOCX, MD, TXT). Re-uploading
+          the same document updates rather than duplicates. LinkedIn exports stay on the CLI:{" "}
+          <code>ajp ingest --linkedin</code>.
+        </p>
+        <div className="actions" style={{ marginTop: 0 }}>
+          <label className="editor-field" style={{ maxWidth: 190 }}>
+            <span>Type</span>
+            <select
+              value={sourceType}
+              onChange={(e) => setSourceType(e.target.value)}
+              disabled={ingesting}
+            >
+              {SOURCE_TYPES.map((t) => (
+                <option key={t.value} value={t.value}>
+                  {t.label}
+                </option>
+              ))}
+            </select>
+          </label>
+          <input
+            ref={fileRef}
+            type="file"
+            accept=".pdf,.docx,.md,.txt"
+            disabled={ingesting}
+            onChange={(e) => {
+              const f = e.target.files?.[0];
+              if (f) upload(f);
+            }}
+          />
+          <div className="spacer" />
+          <button onClick={pullGithub} disabled={ingesting}>
+            Pull GitHub
+          </button>
+        </div>
+        {ingesting && <p className="busy">Parsing and folding into the profile…</p>}
+        {ingestNote && <p className="muted">{ingestNote}</p>}
+      </section>
 
       {/* ---- interview ---- */}
       <div className="detail-head" style={{ marginBottom: 8 }}>
@@ -209,6 +338,65 @@ export default function ProfilePage() {
         )}
 
         {error && <p className="error">{error}</p>}
+      </section>
+
+      {/* ---- master-doc entries ---- */}
+      <h2>Master-doc entries</h2>
+      <section className="panel">
+        <p className="muted" style={{ marginTop: 0, fontSize: "0.9rem" }}>
+          Edits are made to the master document itself, so they survive a re-ingest. To keep
+          something true but off your résumés, a handling note is better than deleting it.
+        </p>
+
+        {entries === null && <p className="busy">Loading…</p>}
+        {entries?.length === 0 && <p className="muted">No entries found.</p>}
+
+        {editing ? (
+          <div className="steer">
+            <p className="muted" style={{ fontSize: "0.85rem" }}>
+              Editing <strong>{editing.heading}</strong> — keep the{" "}
+              <code>### Heading — Org, Location. Dates</code> shape.
+            </p>
+            <textarea
+              value={editText}
+              onChange={(e) => setEditText(e.target.value)}
+              disabled={busy}
+              style={{ minHeight: 260, fontFamily: "ui-monospace, Menlo, Consolas, monospace" }}
+            />
+            <div className="actions">
+              <button className="primary" disabled={busy} onClick={() => saveEntry(false)}>
+                {busy ? "Saving & re-ingesting…" : "Save"}
+              </button>
+              <button disabled={busy} onClick={() => setEditing(null)}>
+                Cancel
+              </button>
+              <div className="spacer" />
+              <button className="mini danger" disabled={busy} onClick={() => saveEntry(true)}>
+                Remove entry
+              </button>
+            </div>
+          </div>
+        ) : (
+          entries?.map((e) => (
+            <div key={`${e.section}-${e.heading}`} className="ingest-row">
+              <div className="ingest-hit" style={{ justifyContent: "space-between" }}>
+                <span>
+                  {e.heading}
+                  <span className="muted"> · {e.section}</span>
+                </span>
+                <button
+                  className="mini"
+                  onClick={() => {
+                    setEditing(e);
+                    setEditText(e.markdown);
+                  }}
+                >
+                  Edit
+                </button>
+              </div>
+            </div>
+          ))
+        )}
       </section>
 
       {/* ---- current profile ---- */}

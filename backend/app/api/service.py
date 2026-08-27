@@ -176,7 +176,7 @@ def commit_master_doc_entry(section: str, markdown: str, *, candidate_id: UUID) 
     from app.profile.models import SourceType
     from app.profile.repository import ProfileRepository
 
-    path = Path(get_settings().master_doc_path)
+    path = get_settings().resolved_master_doc_path()
     if not path.exists():
         raise FileNotFoundError(
             f"No master document at {path}. Set MASTER_DOC_PATH to point at it."
@@ -187,6 +187,45 @@ def commit_master_doc_entry(section: str, markdown: str, *, candidate_id: UUID) 
     repo = ProfileRepository()
     ingestor = Ingestor(repo, LLMClient())
     summary = ingestor.ingest_document(
+        path, SourceType.MASTER_DOC, candidate_id=candidate_id, dedup=True
+    )
+    return str(path), str(summary)
+
+
+def list_master_doc_entries() -> list[dict[str, str]]:
+    """Every entry in the master-doc, for review and editing."""
+    from app.config import get_settings
+    from app.profile.master_doc import list_entries
+
+    path = get_settings().resolved_master_doc_path()
+    if not path.exists():
+        raise FileNotFoundError(f"No master document at {path}. Set MASTER_DOC_PATH.")
+    return list_entries(path.read_text(encoding="utf-8"))
+
+
+def edit_master_doc_entry(heading: str, markdown: str, *, candidate_id: UUID) -> tuple[str, str]:
+    """Replace (or delete, with empty markdown) an entry, then re-ingest.
+
+    Edits go to the doc rather than the database: the database is rebuilt from
+    the doc, so a database-only edit would be undone by the next ingest.
+    """
+    from app.config import get_settings
+    from app.ingestion import Ingestor
+    from app.llm import LLMClient
+    from app.profile.master_doc import edit_entry_in_file
+    from app.profile.models import SourceType
+    from app.profile.repository import ProfileRepository
+
+    path = get_settings().resolved_master_doc_path()
+    if not path.exists():
+        raise FileNotFoundError(f"No master document at {path}. Set MASTER_DOC_PATH.")
+    try:
+        edit_entry_in_file(path, heading, markdown)
+    except KeyError as exc:
+        raise KeyError(f"No entry with heading '{heading}' in the master document.") from exc
+
+    repo = ProfileRepository()
+    summary = Ingestor(repo, LLMClient()).ingest_document(
         path, SourceType.MASTER_DOC, candidate_id=candidate_id, dedup=True
     )
     return str(path), str(summary)
