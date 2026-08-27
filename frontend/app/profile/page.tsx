@@ -8,6 +8,7 @@ type Phase = "idle" | "interviewing" | "review" | "saved";
 export default function ProfilePage() {
   const [profile, setProfile] = useState<string | null>(null);
   const [phase, setPhase] = useState<Phase>("idle");
+  const [sessionId, setSessionId] = useState<string | null>(null);
   const [transcript, setTranscript] = useState<InterviewTurn[]>([]);
   const [answer, setAnswer] = useState("");
   const [busy, setBusy] = useState(false);
@@ -25,24 +26,37 @@ export default function ProfilePage() {
       .getProfile()
       .then((p) => setProfile(p.markdown))
       .catch((e) => setError(String(e.message ?? e)));
+    // Pick up an interview left unfinished (here or in `ajp interview`).
+    api
+      .interviewState()
+      .then((s) => {
+        if (s.session_id && s.transcript.length) {
+          setSessionId(s.session_id);
+          setTranscript(s.transcript);
+          setPhase("interviewing");
+        }
+      })
+      .catch(() => {
+        /* nothing to resume */
+      });
   }, []);
 
   useEffect(() => {
     endRef.current?.scrollIntoView({ behavior: "smooth" });
   }, [transcript, phase]);
 
-  async function step(next: InterviewTurn[]) {
+  async function step(answer?: string, fresh = false) {
     setBusy(true);
     setError(null);
     try {
-      const res = await api.interviewNext(next);
+      const res = await api.interviewNext(answer, fresh);
+      setSessionId(res.session_id);
+      setTranscript(res.transcript);
       if (res.ready) {
-        const draft = await api.interviewDraft(next);
+        const draft = await api.interviewDraft();
         setSection(draft.section);
         setMarkdown(draft.markdown);
         setPhase("review");
-      } else if (res.question) {
-        setTranscript([...next, { role: "assistant", content: res.question }]);
       }
     } catch (e) {
       setError(String((e as Error).message ?? e));
@@ -55,21 +69,21 @@ export default function ProfilePage() {
     setPhase("interviewing");
     setTranscript([]);
     setSaved(null);
-    await step([]);
+    await step(undefined, true); // start a fresh session
   }
 
   async function send() {
     const text = answer.trim();
     if (!text) return;
     setAnswer("");
-    await step([...transcript, { role: "user", content: text }]);
+    await step(text);
   }
 
   async function save() {
     setBusy(true);
     setError(null);
     try {
-      const res = await api.commitEntry(section, markdown);
+      const res = await api.commitEntry(section, markdown, sessionId);
       setSaved({ path: res.master_doc_path, ingested: res.ingested });
       setPhase("saved");
       const p = await api.getProfile();
@@ -143,7 +157,7 @@ export default function ProfilePage() {
                 Send
               </button>
               <button
-                onClick={() => step(transcript)}
+                onClick={() => step()}
                 disabled={busy || transcript.length < 2}
                 title="Skip ahead and draft the entry from what you've said so far"
               >

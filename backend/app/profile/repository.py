@@ -265,6 +265,24 @@ class ProfileRepository:
         )[0]
         return InterviewSession.from_row(row)
 
+    def get_open_interview_session(self, candidate_id: UUID) -> InterviewSession | None:
+        """The most recent unfinished session, so an interview can be resumed."""
+        rows = _rows(
+            self.client.table("interview_sessions")
+            .select("*")
+            .eq("candidate_id", str(candidate_id))
+            .eq("status", InterviewStatus.IN_PROGRESS.value)
+            .order("started_at", desc=True)
+            .limit(1)
+            .execute()
+        )
+        return InterviewSession.from_row(rows[0]) if rows else None
+
+    def abandon_interview_session(self, session_id: UUID) -> None:
+        self.client.table("interview_sessions").update(
+            {"status": InterviewStatus.ABANDONED.value}
+        ).eq("id", str(session_id)).execute()
+
     def add_interview_turn(self, turn: InterviewTurn) -> InterviewTurn:
         row = _rows(self.client.table("interview_turns").insert(turn.to_row()).execute())[0]
         return InterviewTurn.from_row(row)

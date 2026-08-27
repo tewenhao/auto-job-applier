@@ -89,9 +89,12 @@ export type IngestResult = {
 export type InterviewTurn = { role: "assistant" | "user"; content: string };
 
 export type InterviewStep = {
+  session_id: string | null;
+  transcript: InterviewTurn[];
   question: string | null;
   ready: boolean;
   missing: string | null;
+  resumed: boolean;
 };
 
 export type DraftedEntry = { section: string; markdown: string };
@@ -181,22 +184,25 @@ export const api = {
 
   getProfile: () => request<{ markdown: string }>("/api/profile"),
 
-  interviewNext: (transcript: InterviewTurn[]) =>
+  // The server owns the transcript, so an interview survives a reload.
+  interviewState: () => request<InterviewStep>("/api/profile/interview"),
+
+  interviewNext: (answer?: string, fresh = false) =>
     request<InterviewStep>("/api/profile/interview", {
       method: "POST",
-      body: JSON.stringify({ transcript }),
+      body: JSON.stringify({ answer: answer ?? null, fresh }),
     }),
 
-  interviewDraft: (transcript: InterviewTurn[]) =>
+  interviewDraft: () =>
     request<DraftedEntry>("/api/profile/interview/draft", {
       method: "POST",
-      body: JSON.stringify({ transcript }),
+      body: JSON.stringify({}),
     }),
 
-  commitEntry: (section: string, markdown: string) =>
+  commitEntry: (section: string, markdown: string, session_id?: string | null) =>
     request<CommittedEntry>("/api/profile/entries", {
       method: "POST",
-      body: JSON.stringify({ section, markdown }),
+      body: JSON.stringify({ section, markdown, session_id: session_id ?? null }),
     }),
 
   getPreferences: () => request<Preferences>("/api/preferences"),

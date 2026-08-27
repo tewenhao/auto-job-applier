@@ -7,6 +7,9 @@ interview / voice / profile commands are stubs filled in over later phases.
 
 from __future__ import annotations
 
+import os
+from pathlib import Path
+
 import typer
 
 app = typer.Typer(
@@ -206,9 +209,97 @@ def consolidate(
 
 
 @app.command()
-def interview() -> None:
-    """Run the gap-aware onboarding interview."""
-    typer.echo("interview: not implemented yet (Phase 3).")
+def interview(
+    fresh: bool = typer.Option(
+        False, "--fresh", help="Abandon any unfinished session and start over."
+    ),
+    section: str | None = typer.Option(
+        None, "--section", help="Force the master-doc section (else the model picks)."
+    ),
+) -> None:
+    """Talk through a new experience and add it to your master document.
+
+    Asks one question at a time, drafts the entry in the master-doc's format for
+    you to review, then writes it and re-ingests. Sessions are saved, so
+    Ctrl-C now and re-run to pick up where you left off.
+    """
+    import subprocess
+    import tempfile
+
+    from app.api.service import commit_master_doc_entry
+    from app.llm import LLMClient
+    from app.profile.interview import (
+        draft_entry,
+        load_transcript,
+        next_step,
+        open_or_resume,
+        record_turn,
+    )
+    from app.profile.markdown import profile_to_markdown
+    from app.profile.repository import ProfileRepository
+
+    repo = ProfileRepository()
+    candidate = repo.get_or_create_default_candidate()
+    assert candidate.id is not None
+    llm = LLMClient()
+
+    session, resumed = open_or_resume(repo, candidate.id, resume=not fresh)
+    transcript = load_transcript(repo, session.id)
+    if resumed and transcript:
+        typer.secho(
+            f"Resuming an unfinished interview ({len(transcript)} turns). "
+            "Use --fresh to start over.",
+            fg=typer.colors.YELLOW,
+        )
+        for turn in transcript[-2:]:
+            prefix = "?" if turn["role"] == "assistant" else ">"
+            typer.echo(f"  {prefix} {turn['content']}")
+
+    existing = profile_to_markdown(repo.get_master_profile(candidate.id))
+
+    while True:
+        step = next_step(llm, transcript, profile_markdown=existing)
+        if step.ready:
+            break
+        question = step.question or ""
+        typer.secho(f"\n{question}", fg=typer.colors.CYAN)
+        typer.secho("  (blank to stop asking and draft the entry)", fg=typer.colors.BRIGHT_BLACK)
+        answer = typer.prompt("  >", default="", show_default=False).strip()
+        record_turn(repo, session, "assistant", question)
+        transcript.append({"role": "assistant", "content": question})
+        if not answer:
+            break
+        record_turn(repo, session, "user", answer)
+        transcript.append({"role": "user", "content": answer})
+
+    if len([t for t in transcript if t["role"] == "user"]) == 0:
+        typer.secho("Nothing to draft — no answers given.", fg=typer.colors.YELLOW)
+        raise typer.Exit(code=1)
+
+    typer.echo("\nDrafting the entry ...")
+    drafted = draft_entry(llm, transcript)
+    chosen = section or drafted.section
+
+    # Review before anything touches the master-doc: open it in $EDITOR so the
+    # entry can be corrected, exactly as the dashboard shows an editable box.
+    with tempfile.NamedTemporaryFile("w+", suffix=".md", delete=False) as fh:
+        fh.write(drafted.markdown)
+        tmp = fh.name
+    typer.secho(f"\n--- drafted entry (section: {chosen}) ---", fg=typer.colors.GREEN)
+    typer.echo(drafted.markdown)
+    if typer.confirm("\nEdit before saving?", default=False):
+        editor = os.environ.get("EDITOR", "vi")
+        subprocess.run([editor, tmp], check=False)
+    final = Path(tmp).read_text().strip()
+    Path(tmp).unlink(missing_ok=True)
+
+    if not typer.confirm(f"Append to the master-doc under '{chosen}' and re-ingest?", default=True):
+        typer.secho("Left unsaved. The session is kept — re-run to resume.", fg=typer.colors.YELLOW)
+        raise typer.Exit()
+
+    path, summary = commit_master_doc_entry(chosen, final, candidate_id=candidate.id)
+    repo.complete_interview_session(session.id)
+    typer.secho(f"Saved to {path} and re-ingested: {summary}", fg=typer.colors.GREEN, bold=True)
 
 
 @voice_app.command("build")

@@ -156,3 +156,41 @@ def draft_entry(llm: LLMClient, transcript: list[dict[str, Any]]) -> DraftedEntr
         output_format=DraftedEntry,
         max_tokens=8000,
     )
+
+
+# --- persistence: sessions are resumable, so an interview can be picked up
+# later (or continued in the CLI after starting in the dashboard) ---
+def load_transcript(repo: Any, session_id: Any) -> list[dict[str, str]]:
+    """The stored turns as the plain transcript the prompts take."""
+    return [
+        {"role": str(t.role), "content": t.content}
+        for t in repo.list_interview_turns(session_id)
+    ]
+
+
+def record_turn(repo: Any, session: Any, role: str, content: str) -> None:
+    """Append one turn, numbering it after whatever is already stored."""
+    from app.profile.models import InterviewRole
+    from app.profile.models import InterviewTurn as TurnRow
+
+    seq = len(repo.list_interview_turns(session.id))
+    repo.add_interview_turn(
+        TurnRow(
+            session_id=session.id,
+            candidate_id=session.candidate_id,
+            seq=seq,
+            role=InterviewRole(role),
+            content=content,
+        )
+    )
+
+
+def open_or_resume(repo: Any, candidate_id: Any, *, resume: bool = True) -> tuple[Any, bool]:
+    """Return (session, resumed). An unfinished session is continued unless
+    ``resume`` is False, in which case it is abandoned and a new one started."""
+    existing = repo.get_open_interview_session(candidate_id)
+    if existing is not None:
+        if resume:
+            return existing, True
+        repo.abandon_interview_session(existing.id)
+    return repo.create_interview_session(candidate_id), False

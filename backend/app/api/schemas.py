@@ -152,13 +152,20 @@ class InterviewTurn(BaseModel):
 
 
 class InterviewRequest(BaseModel):
-    transcript: list[InterviewTurn] = Field(default_factory=list)
+    """One step of a saved interview. The server owns the transcript, so a
+    session can be resumed later (or continued from the CLI)."""
+
+    answer: str | None = None  # the user's reply to the last question
+    fresh: bool = False  # abandon any unfinished session and start over
 
 
 class InterviewStepResponse(BaseModel):
+    session_id: UUID | None = None
+    transcript: list[InterviewTurn] = Field(default_factory=list)
     question: str | None = None
     ready: bool = False
     missing: str | None = None
+    resumed: bool = False
 
 
 class DraftResponse(BaseModel):
@@ -172,6 +179,7 @@ class CommitEntryRequest(BaseModel):
 
     section: str = "experience"
     markdown: str
+    session_id: UUID | None = None  # marked complete once the entry is saved
 
 
 class CommitEntryResponse(BaseModel):

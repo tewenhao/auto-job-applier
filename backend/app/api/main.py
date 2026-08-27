@@ -32,6 +32,7 @@ from app.api.schemas import (
     IngestResult,
     InterviewRequest,
     InterviewStepResponse,
+    InterviewTurn,
     ListingSummary,
     Preferences,
     PreferencesUpdate,
@@ -103,37 +104,81 @@ def get_profile(profiles: ProfileRepository = Depends(get_profile_repo)) -> dict
     return {"markdown": profile_to_markdown(profiles.get_master_profile(candidate.id))}
 
 
+@app.get("/api/profile/interview", response_model=InterviewStepResponse)
+def profile_interview_state(
+    profiles: ProfileRepository = Depends(get_profile_repo),
+) -> InterviewStepResponse:
+    """Any unfinished interview, so the page can resume it."""
+    from app.profile.interview import load_transcript
+
+    candidate = profiles.get_or_create_default_candidate()
+    assert candidate.id is not None
+    session = profiles.get_open_interview_session(candidate.id)
+    if session is None:
+        return InterviewStepResponse()
+    turns = load_transcript(profiles, session.id)
+    return InterviewStepResponse(
+        session_id=session.id,
+        transcript=[InterviewTurn(**t) for t in turns],
+        question=turns[-1]["content"] if turns and turns[-1]["role"] == "assistant" else None,
+        resumed=True,
+    )
+
+
 @app.post("/api/profile/interview", response_model=InterviewStepResponse)
 def profile_interview(
     body: InterviewRequest,
     profiles: ProfileRepository = Depends(get_profile_repo),
 ) -> InterviewStepResponse:
-    """The next interview question about a new entry, or ready when there's
-    enough to draft one."""
+    """Record the answer (if any) and return the next question.
+
+    The transcript is stored, so the interview survives a reload and can be
+    continued from `ajp interview`.
+    """
     from app.llm import LLMClient
-    from app.profile.interview import next_step
+    from app.profile.interview import load_transcript, next_step, open_or_resume, record_turn
     from app.profile.markdown import profile_to_markdown
 
     candidate = profiles.get_or_create_default_candidate()
     assert candidate.id is not None
+    session, resumed = open_or_resume(profiles, candidate.id, resume=not body.fresh)
+    transcript = load_transcript(profiles, session.id)
+
+    if body.answer and body.answer.strip():
+        record_turn(profiles, session, "user", body.answer.strip())
+        transcript.append({"role": "user", "content": body.answer.strip()})
+
     existing = profile_to_markdown(profiles.get_master_profile(candidate.id))
-    step = next_step(
-        LLMClient(),
-        [t.model_dump() for t in body.transcript],
-        profile_markdown=existing,
-    )
+    step = next_step(LLMClient(), transcript, profile_markdown=existing)
+    if not step.ready and step.question:
+        record_turn(profiles, session, "assistant", step.question)
+        transcript.append({"role": "assistant", "content": step.question})
+
     return InterviewStepResponse(
-        question=step.question, ready=step.ready, missing=step.missing
+        session_id=session.id,
+        transcript=[InterviewTurn(**t) for t in transcript],
+        question=step.question,
+        ready=step.ready,
+        missing=step.missing,
+        resumed=resumed,
     )
 
 
 @app.post("/api/profile/interview/draft", response_model=DraftResponse)
-def profile_interview_draft(body: InterviewRequest) -> DraftResponse:
-    """Draft the master-doc entry from the transcript, for the user to review."""
+def profile_interview_draft(
+    body: InterviewRequest,
+    profiles: ProfileRepository = Depends(get_profile_repo),
+) -> DraftResponse:
+    """Draft the master-doc entry from the stored transcript, for review."""
     from app.llm import LLMClient
-    from app.profile.interview import draft_entry
+    from app.profile.interview import draft_entry, load_transcript
 
-    drafted = draft_entry(LLMClient(), [t.model_dump() for t in body.transcript])
+    candidate = profiles.get_or_create_default_candidate()
+    assert candidate.id is not None
+    session = profiles.get_open_interview_session(candidate.id)
+    if session is None:
+        raise HTTPException(status_code=400, detail="No interview in progress.")
+    drafted = draft_entry(LLMClient(), load_transcript(profiles, session.id))
     return DraftResponse(section=drafted.section, markdown=drafted.markdown)
 
 
@@ -151,6 +196,8 @@ def commit_profile_entry(
         )
     except FileNotFoundError as exc:
         raise HTTPException(status_code=400, detail=str(exc)) from exc
+    if body.session_id is not None:
+        profiles.complete_interview_session(body.session_id)
     return CommitEntryResponse(master_doc_path=path, ingested=summary)
 
 
