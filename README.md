@@ -21,7 +21,9 @@ gate.
 generation, and the web dashboard. The whole loop — add listings, review the
 scored queue, generate, inspect the model's ranking, steer and regenerate, edit
 the résumé/cover letter by hand, approve — runs in the browser, with the `ajp`
-CLI still exposing every step. **Module 5 — Form Auto-fill** is next.
+CLI still exposing every step. The profile maintains itself there too: upload a
+document to ingest it, talk a new experience in through the interview, or edit
+the master-doc directly. **Module 5 — Form Auto-fill** is next.
 See `todolist.md` for the detailed checklist.
 
 ## Layout

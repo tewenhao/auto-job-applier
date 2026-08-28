@@ -72,18 +72,25 @@ carries both a concise summary and long-form detail, plus links to evidence.
   (`upsert_experience`, `get_profile`, `export_markdown`, …).
 - **Depends on:** `db/`.
 
-### 1c. Interview engine (`backend/app/interview/`)
-- **Responsibility:** the gap-aware onboarding conversation.
+### 1c. Interview engine (`backend/app/profile/interview.py`)
+- **Responsibility:** capturing ONE new entry the profile doesn't have yet, by
+  conversation rather than by form.
 - **Interface:**
-  - In: the already-ingested profile.
-  - Out: elaborations written into experience `detail`; new `preferences`,
-    `writing_samples` (the transcript itself is voice signal), `interview_turns`.
-- **How:** loads the parsed profile, detects gaps (thin resume bullets missing
-  detail, missing "why / proud moment / working style / culture fit / things not
-  on CV"), and asks **Opus**-driven adaptive follow-ups targeting those gaps —
-  rather than interviewing cold about things already known. Captures the
-  structured preference basics as a quick guided step, then refines the fuzzy
-  stuff conversationally. Resumable across sessions.
+  - In: the already-ingested profile (as context, so it doesn't re-ask), plus
+    the stored transcript.
+  - Out: a drafted master-doc entry for review; `interview_sessions` /
+    `interview_turns`; and, once the user accepts, a new block in the
+    master-doc, re-ingested into experiences / skills / writing samples.
+- **How:** **Opus** asks one short, specific question at a time, drawing out
+  what a résumé needs and people leave out — their contribution as distinct
+  from the team's, the stack, honest status, real figures — then drafts the
+  entry in the doc's canonical FACTS / VOICE / PRIVATE format. Never writes
+  silently: the draft is always reviewed first. Resumable across sessions and
+  across surfaces (start in the dashboard, finish in `ajp interview`).
+- **Scoped down from the original plan:** it captures one entry rather than
+  sweeping the profile for gaps, and preference capture stayed structured
+  (`ajp preferences`). Writes land in the master-doc, never straight into the
+  database, because ingest rebuilds the database from the doc.
 - **Depends on:** `llm/`, `profile/`.
 
 ### 1d. Voice model (`backend/app/voice/`)

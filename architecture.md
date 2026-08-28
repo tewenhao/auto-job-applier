@@ -108,7 +108,7 @@ Control flows through the dashboard; data flows through Supabase.
 | 1 | **Candidate Profile** | Ingest all inputs (resume, master-doc, essays, LinkedIn export, GitHub) into the master-superset profile; voice model; preferences. | **Done** |
 | 2 | Listing Ingestion | Manual paste + batch; structured ATS fast-paths and board enumeration (Greenhouse, Lever, Workday, Oracle HCM, Eightfold, iCIMS) with a headless-browser fallback; parse to listing model; score vs preferences. | **Done** |
 | 3 | Application Generation | Tailored one-page resume (LaTeX → PDF) + humanified, voiced cover letter grounded in JD + company values; inspectable ranking + steering. | **Done** |
-| 4 | **Dashboard** | Next.js UI over a FastAPI layer (`ajp serve`): add listings, browse the scored queue, generate, inspect the ranking, steer/regenerate, edit résumé + cover letter, approve. | **Done** |
+| 4 | **Dashboard** | Next.js UI over a FastAPI layer (`ajp serve`): add listings, browse the scored queue, generate, inspect the ranking, steer/regenerate, edit résumé + cover letter, approve; plus profile self-service — ingest documents, interview in a new entry, edit the master-doc. | **Done** |
 | 5 | Form Auto-fill | Playwright ATS form-fill + essay answers; field-level review before submit. | **Next** |
 | 6 | Gmail Monitor | Gmail API + Pub/Sub; classify responses; update tracker. | Later |
 | 7 | Tracker | Supabase as source of truth + Notion-synced human-readable view. | Later |
@@ -141,8 +141,8 @@ auto-job-applier/
 ├── backend/
 │   ├── app/
 │   │   ├── ingestion/     # resume, linkedin, github, essays, master-doc parsers
-│   │   ├── profile/       # Pydantic models + Supabase data-access layer
-│   │   ├── interview/     # gap-aware conversational engine
+│   │   ├── profile/       # Pydantic models + Supabase DAL + master-doc
+│   │   │                  #   editing + the entry-capture interview
 │   │   ├── voice/         # voice-profile distiller
 │   │   ├── llm/           # Anthropic client wrapper + model config
 │   │   ├── db/            # Supabase client
@@ -168,9 +168,9 @@ auto-job-applier/
 - Fresh clone + `.env` + `supabase db push` stands up the schema.
 - `ingest` parses a real resume, LinkedIn export, GitHub profile, essays, and a
   freeform master doc into the experience bank, retaining every raw input.
-- `interview` runs an Opus-driven, gap-aware conversation that elaborates thin
-  experiences and captures preferences, working style, and things-not-on-CV,
-  and is resumable.
+- `interview` runs an Opus-driven conversation that captures one new experience
+  — contribution, stack, honest status, real figures — and drafts it into the
+  master-doc's format for review. Resumable, and shared with the dashboard.
 - `voice build` produces a distilled voice profile plus retained raw samples.
 - `profile show/export` renders the whole profile as readable Markdown; the user
   can correct it (edit + re-import, or direct Supabase) — the profile is fully

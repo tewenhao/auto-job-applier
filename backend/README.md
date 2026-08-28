@@ -51,6 +51,7 @@ uv run ajp check                       # validate config
 uv run ajp ingest --resume … --master-doc … --essay … --cover-letter … \
         --linkedin export.zip --github [--fresh]   # populate the profile
 uv run ajp consolidate                 # semantic dedup/merge of experiences + skills
+uv run ajp interview [--fresh] [--section <s>]   # talk one new entry into the master-doc
 uv run ajp profile show [--notes]      # render the profile as Markdown
 uv run ajp profile add-note "<rule>"   # add a "do not surface" handling note
 uv run ajp profile list-notes | remove-note <i>

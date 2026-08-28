@@ -4,9 +4,10 @@ Ordered roughly by dependency. Module 1 is broken into concrete steps; later
 modules are high-level phases, expanded when we reach them.
 
 **Status: Modules 1–4 complete. Module 5 (Form auto-fill) next.**
-The conversational interview (Phase 3) was deferred — the voice model is built
-from writing samples and preferences are captured via the `ajp preferences`
-commands, so it isn't a blocker; revisit if gap-filling proves needed.
+Phase 3's interview was eventually built, scoped down: it captures **one new
+entry into the master-doc at a time** (`ajp interview`, or the dashboard's
+Profile page) rather than sweeping the whole profile for gaps. Preferences stay
+structured, via the `ajp preferences` commands.
 
 ## Phase 0 — Project scaffolding
 - [x] Monorepo layout: `backend/`, `supabase/`, `frontend/` (reserved).
@@ -54,14 +55,34 @@ commands, so it isn't a blocker; revisit if gap-filling proves needed.
 - [x] Live check: `ajp consolidate` on real data — 41→~30, merges correct,
       handling_notes cleanly separated (minor residual nits noted).
 
-## Phase 3 — Interview engine (DEFERRED)
+## Phase 3 — Interview engine
 - [x] Structured preference capture → `preferences` (via `ajp preferences
       derive/show/set`, not a conversation).
+- [x] Entry-capture interview (`app/profile/interview.py`): one question at a
+      time, drawing out what a résumé needs and people leave out — their
+      contribution as distinct from the team's, the stack, honest status, real
+      figures — then drafting the entry in the master-doc's canonical format
+      for review. `ajp interview [--fresh] [--section]` and the dashboard's
+      Profile page drive the same functions.
+- [x] Resumable: the transcript persists to `interview_sessions` /
+      `interview_turns`, so a session survives a reload or a Ctrl-C and can be
+      continued in either surface.
+- [x] The reviewed draft is written into the **master-doc**, never straight
+      into the database — ingest rebuilds the database from the doc, so a
+      row-level write would be undone by the next ingest and lost on `--fresh`.
+- [x] Reliability, all found live: a transcript ending on the assistant's
+      unanswered question is nudged rather than sent (was a 500); `LLMClient`
+      retries the API's transient generic 400 (the SDK never retries 4xx);
+      consecutive same-role turns are merged so a failed call can't wedge a
+      session permanently.
+- [x] Effort tuning: `next_step` runs at `effort="low"` (choosing a question is
+      routing, not reasoning) and `draft_entry` at `"medium"`. At the default,
+      adaptive thinking consumed the whole 16k budget and truncated the model's
+      own JSON — ~40s a turn and flaky; now ~7s round trip, 6/6 live runs.
 - [ ] Gap detection over the ingested profile (thin bullets, missing
-      why/proud-moment/working-style/culture/things-not-on-CV). — deferred
-- [ ] Opus-driven adaptive conversation loop writing elaborations into
-      experience `detail`; persist transcript to `interview_turns`, resumable;
-      `interview` CLI. — deferred (revisit if gap-filling is needed)
+      why/proud-moment/working-style/culture/things-not-on-CV). — still not
+      built. The entry interview covers "add the thing that's missing"; sweeping
+      the whole profile for thin spots hasn't been needed yet.
 
 ## Phase 4 — Voice model
 - [x] Distill `voice_profile` from `writing_samples` (interview transcript input
@@ -125,7 +146,8 @@ commands, so it isn't a blocker; revisit if gap-filling proves needed.
 - [x] FastAPI layer over the existing repositories + pipeline (`ajp serve`), so
       the CLI and the web UI drive identical code paths. Repos arrive via
       `Depends`, so tests swap fakes in — no Supabase needed.
-- [x] Next.js (App Router) client: Listings, Add, Applications, Priorities.
+- [x] Next.js (App Router) client: Listings, Add, Applications, Priorities,
+      Profile.
 - [x] Listings view — scored queue, links out to the original posting, and a
       Generate button per role.
 - [x] Application review — the tailorer's ranking (score, rationale, in/out), a
@@ -138,11 +160,24 @@ commands, so it isn't a blocker; revisit if gap-filling proves needed.
 - [x] Cover letter rendered to PDF via LaTeX, matching the résumé's header/font.
 - [x] Add listings from the browser — paste URLs (boards expand) or a JD;
       results stream in per URL, skips shown with their reason.
+- [x] Profile page — self-service for the profile itself: upload a résumé /
+      cover letter / essay / master-doc and run the same ingestion `ajp ingest`
+      does (dedup on, so re-uploading updates rather than duplicates), pull
+      GitHub metadata, and add a new experience by interview. LinkedIn's zip is
+      left to the CLI.
+- [x] Master-doc entry list with edit / remove. Edits are applied to the
+      document itself (keeping a `.bak`) and re-ingested, so they survive the
+      next ingest; the UI points at handling notes for "true, but keep it off
+      the résumé".
 - [x] Live check: the full loop in the browser — add listings, generate, steer,
       edit, approve. It surfaced four things unit tests could not: run progress
       died on navigation, every document downloaded as `resume.pdf`, steering
       moved the ranking but not what trimming cut, and trimming deleted whole
       entries before touching a bullet. All fixed.
+- [ ] Live check: one full interview in the browser, start → draft → save →
+      re-ingest. The API path has been exercised live (the 500, the 400 retry,
+      and the effort fix each came out of live runs), but the whole
+      Profile-page loop has not been walked end to end since.
 
 ## Later phases (expanded when reached)
 - [ ] **Module 5** — Form auto-fill (Playwright) + essay answers + field review.
