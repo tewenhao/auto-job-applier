@@ -129,4 +129,10 @@ A running log of significant decisions and their rationale. Newest at the bottom
   order by a *total* key. Rows tied on `start_date` used to come back in
   arbitrary order, which changes the rendered bytes and would have silently cost
   the cache hit it was all built for.
+- Measured (2026-08-28, two listings back to back, nothing stored): the second
+  listing read back the whole shared prefix and wrote none — résumé 27,249
+  tokens read / 0 written, cover letter 34,479 read / 0 written, with only ~3k
+  tokens of per-listing tail at full price. $0.049 for the second application's
+  two calls against $0.327 uncached: roughly 85% off the prompt cost of every
+  application after the first.
 - Date: 2026-08-28
