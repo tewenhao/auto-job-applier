@@ -472,3 +472,47 @@ def test_a_resume_that_fits_reports_nothing() -> None:
     }
     client = _client(apps=[a], listings=[listing])
     assert client.get(f"/api/applications/{a.id}").json()["notices"] == []
+
+
+def test_listing_preferences_round_trip() -> None:
+    client = _client(apps=[], listings=[])
+
+    put = client.put(
+        "/api/preferences",
+        json={
+            "location_markets": ["uk", " sg "],  # whitespace is the user's, not ours to keep
+            "avoid": ["sales"],
+            "domains": ["swe", "quant"],
+            "role_types": ["internship"],
+        },
+    )
+    body = put.json()
+    assert body["location_markets"] == ["uk", "sg"]
+    assert body["domains"] == ["swe", "quant"]
+    assert client.get("/api/preferences").json()["avoid"] == ["sales"]
+
+
+def test_saving_one_section_does_not_wipe_the_other() -> None:
+    """The résumé guidance and the listing filters share a row but are edited in
+    different places, so a partial update must leave the rest alone."""
+    client = _client(apps=[], listings=[])
+    client.put("/api/preferences", json={"resume_guidance": "Lead with ML."})
+    client.put("/api/preferences", json={"location_markets": ["uk"]})
+
+    both = client.get("/api/preferences").json()
+    assert both["resume_guidance"] == "Lead with ML."  # untouched by the second save
+    assert both["location_markets"] == ["uk"]
+
+    # And the reverse: saving guidance leaves the filters in place.
+    client.put("/api/preferences", json={"resume_guidance": "Different."})
+    assert client.get("/api/preferences").json()["location_markets"] == ["uk"]
+
+
+def test_an_empty_list_clears_a_filter() -> None:
+    """Clearing markets has real consequences — no market filter is applied at
+    all — so it has to be possible to say it deliberately."""
+    client = _client(apps=[], listings=[])
+    client.put("/api/preferences", json={"location_markets": ["uk"]})
+    assert client.put("/api/preferences", json={"location_markets": []}).json()[
+        "location_markets"
+    ] == []

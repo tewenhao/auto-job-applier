@@ -120,9 +120,7 @@ def get_preferences(
 ) -> Preferences:
     candidate = profiles.get_or_create_default_candidate()
     assert candidate.id is not None
-    prefs = profiles.get_preferences(candidate.id)
-    guidance = prefs.extra.get(RESUME_GUIDANCE_KEY) if prefs else None
-    return Preferences(resume_guidance=guidance or None)
+    return Preferences.build(profiles.get_preferences(candidate.id))
 
 
 @app.put("/api/preferences", response_model=Preferences)
@@ -133,13 +131,22 @@ def update_preferences(
     candidate = profiles.get_or_create_default_candidate()
     assert candidate.id is not None
     prefs = profiles.get_preferences(candidate.id) or ProfilePreferences(candidate_id=candidate.id)
-    text = body.resume_guidance.strip()
-    if text:
-        prefs.extra = {**prefs.extra, RESUME_GUIDANCE_KEY: text}
-    else:  # empty clears the standing guidance
-        prefs.extra = {k: v for k, v in prefs.extra.items() if k != RESUME_GUIDANCE_KEY}
-    saved = profiles.set_preferences(prefs)
-    return Preferences(resume_guidance=saved.extra.get(RESUME_GUIDANCE_KEY) or None)
+
+    if body.resume_guidance is not None:
+        text = body.resume_guidance.strip()
+        if text:
+            prefs.extra = {**prefs.extra, RESUME_GUIDANCE_KEY: text}
+        else:  # empty clears the standing guidance
+            prefs.extra = {k: v for k, v in prefs.extra.items() if k != RESUME_GUIDANCE_KEY}
+
+    # Same semantics as `ajp preferences set`: a field you send replaces that
+    # list outright; a field you omit is left exactly as it was.
+    for name in PreferencesUpdate.LIST_FIELDS:
+        value = getattr(body, name)
+        if value is not None:
+            setattr(prefs, name, [v.strip() for v in value if v.strip()])
+
+    return Preferences.build(profiles.set_preferences(prefs))
 
 
 @app.get("/api/profile")

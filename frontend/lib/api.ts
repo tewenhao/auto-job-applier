@@ -112,8 +112,30 @@ export type IngestSummary = {
 };
 
 export type Preferences = {
+  /** Standing guidance for the résumé tailorer — not about listings at all. */
   resume_guidance: string | null;
+
+  /** Hard filters: a listing that fails these is dropped before it is scored. */
+  location_markets: string[];
+  avoid: string[];
+
+  /** Ranking signals: these move the 0-100 score and exclude nothing. */
+  role_types: string[];
+  domains: string[];
+  industries: string[];
+  company_sizes: string[];
 };
+
+/** A partial update. Omitted fields are left alone; `[]` and `""` clear. */
+export type PreferencesUpdate = Partial<{
+  resume_guidance: string;
+  location_markets: string[];
+  avoid: string[];
+  role_types: string[];
+  domains: string[];
+  industries: string[];
+  company_sizes: string[];
+}>;
 
 /** A failure, in the shape the API returns: what happened, and what to try. */
 export type Problem = {
@@ -317,9 +339,11 @@ export const api = {
 
   getPreferences: () => request<Preferences>("/api/preferences"),
 
-  updatePreferences: (resume_guidance: string) =>
+  // Partial by design: the résumé guidance and the listing filters share one
+  // record but are edited in different sections, so each saves only its own.
+  updatePreferences: (update: PreferencesUpdate) =>
     request<Preferences>("/api/preferences", {
       method: "PUT",
-      body: JSON.stringify({ resume_guidance }),
+      body: JSON.stringify(update),
     }),
 };

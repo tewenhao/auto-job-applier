@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+from typing import ClassVar
 from uuid import UUID
 
 from pydantic import BaseModel, Field
@@ -150,12 +151,70 @@ class GenerateRequest(BaseModel):
 
 
 class Preferences(BaseModel):
+    """Everything that steers what gets applied to, and how it's written.
+
+    Two unrelated jobs share this record, and they behave differently enough
+    that the UI has to say so: ``location_markets`` and ``avoid`` are HARD
+    FILTERS applied before any model call (a listing that fails them is dropped
+    from the queue), while the other four only inform the 0-100 relevance score.
+    ``resume_guidance`` isn't about listings at all — it steers the résumé.
+    """
+
     # Standing résumé-generation guidance: what to prioritise on every resume.
     resume_guidance: str | None = None
 
+    # Hard filters — these EXCLUDE listings (app/listings/score.py).
+    location_markets: list[str] = Field(default_factory=list)
+    avoid: list[str] = Field(default_factory=list)
+
+    # Ranking signals — these only move the score.
+    role_types: list[str] = Field(default_factory=list)
+    domains: list[str] = Field(default_factory=list)
+    industries: list[str] = Field(default_factory=list)
+    company_sizes: list[str] = Field(default_factory=list)
+
+    @classmethod
+    def build(cls, prefs: object | None) -> Preferences:
+        if prefs is None:
+            return cls()
+        from app.generation.resume import RESUME_GUIDANCE_KEY
+
+        extra = getattr(prefs, "extra", {}) or {}
+        return cls(
+            resume_guidance=extra.get(RESUME_GUIDANCE_KEY) or None,
+            location_markets=list(getattr(prefs, "location_markets", []) or []),
+            avoid=list(getattr(prefs, "avoid", []) or []),
+            role_types=list(getattr(prefs, "role_types", []) or []),
+            domains=list(getattr(prefs, "domains", []) or []),
+            industries=list(getattr(prefs, "industries", []) or []),
+            company_sizes=list(getattr(prefs, "company_sizes", []) or []),
+        )
+
 
 class PreferencesUpdate(BaseModel):
-    resume_guidance: str = ""  # empty clears the standing guidance
+    """A partial update: ``None`` leaves a field alone, ``""``/``[]`` clears it.
+
+    Every field is optional so saving one section can never silently wipe
+    another — the résumé guidance and the listing filters live on one row but
+    are edited in different places.
+    """
+
+    resume_guidance: str | None = None
+    location_markets: list[str] | None = None
+    avoid: list[str] | None = None
+    role_types: list[str] | None = None
+    domains: list[str] | None = None
+    industries: list[str] | None = None
+    company_sizes: list[str] | None = None
+
+    LIST_FIELDS: ClassVar[tuple[str, ...]] = (
+        "location_markets",
+        "avoid",
+        "role_types",
+        "domains",
+        "industries",
+        "company_sizes",
+    )
 
 
 class IngestRequest(BaseModel):
