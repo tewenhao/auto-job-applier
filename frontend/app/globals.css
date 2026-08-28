@@ -931,3 +931,75 @@ input[type="file"] {
   text-decoration: underline;
   cursor: pointer;
 }
+
+/* ---- what a rescore moved ----
+   Colour marks the direction, but never carries it alone: the old score, an
+   arrow and the new status say the same thing without it. */
+.app-card.changed {
+  border-left: 3px solid var(--accent);
+}
+
+.score-chip-changed {
+  outline: 2px solid var(--accent);
+  outline-offset: 1px;
+}
+
+.score-change {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  margin-left: 10px;
+}
+
+.delta {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  font-size: 0.8rem;
+  font-weight: 600;
+  font-variant-numeric: tabular-nums;
+}
+
+.delta-was {
+  text-decoration: line-through;
+  opacity: 0.75;
+}
+
+.delta-up {
+  color: var(--accent);
+}
+
+.delta-down {
+  color: var(--warn);
+}
+
+.delta-same {
+  color: var(--muted);
+}
+
+.status-move {
+  font-size: 0.74rem;
+  font-weight: 700;
+  letter-spacing: 0.02em;
+  text-transform: uppercase;
+  padding: 2px 7px;
+  border-radius: 999px;
+  background: var(--accent-weak);
+  color: var(--accent);
+}
+
+.status-move-filtered,
+.status-move-new {
+  background: transparent;
+  border: 1px solid var(--warn);
+  color: var(--warn);
+}
+
+/* The summary says which way the run went before you read a word of it. */
+.rescore-summary.did-change {
+  border-left: 3px solid var(--accent);
+}
+
+.rescore-summary.no-change {
+  border-left: 3px solid var(--border);
+}

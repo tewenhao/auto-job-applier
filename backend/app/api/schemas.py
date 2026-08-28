@@ -54,12 +54,34 @@ class RescoreRequest(BaseModel):
     listing_ids: list[UUID] | None = None
 
 
+class RescoredListing(BaseModel):
+    """One listing's before and after, so the queue can show what moved.
+
+    A count of how many changed doesn't answer the question you actually have
+    after a rescore, which is *which ones*.
+    """
+
+    id: UUID
+    previous_score: int | None = None
+    score: int | None = None
+    previous_status: str
+    status: str
+    flagged: bool = False
+
+    @property
+    def changed(self) -> bool:
+        return self.score != self.previous_score or self.status != self.previous_status
+
+
 class RescoreResult(BaseModel):
     """What a rescore changed, for the dashboard to report."""
 
     total: int
     changed: int
     flagged: list[ListingSummary] = Field(default_factory=list)
+    # Only the ones that moved: the queue marks these, and sending eighty
+    # unchanged rows back would be noise.
+    results: list[RescoredListing] = Field(default_factory=list)
 
 
 class ApplicationSummary(BaseModel):

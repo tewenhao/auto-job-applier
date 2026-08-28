@@ -3,7 +3,13 @@
 import { useRouter } from "next/navigation";
 import Link from "next/link";
 import { useEffect, useState, useSyncExternalStore } from "react";
-import { api, toProblem, type ListingSummary, type Problem } from "@/lib/api";
+import {
+  api,
+  toProblem,
+  type ListingSummary,
+  type Problem,
+  type RescoredListing,
+} from "@/lib/api";
 import ErrorBox from "@/app/components/ErrorBox";
 import {
   clearRescore,
@@ -16,6 +22,30 @@ import {
   subscribeGenerating,
   subscribeRescore,
 } from "@/lib/runs";
+
+/** How a listing moved in the last rescore: the old score struck through, the
+ *  new one, and which way it went. Colour carries the direction, the arrow and
+ *  the numbers carry it too — colour is never the only signal. */
+function ScoreChange({ change }: { change: RescoredListing }) {
+  const from = change.previous_score;
+  const to = change.score;
+  const direction = (to ?? 0) > (from ?? 0) ? "up" : (to ?? 0) < (from ?? 0) ? "down" : "same";
+  const statusMoved = change.status !== change.previous_status;
+
+  return (
+    <span className="score-change">
+      {from !== to && (
+        <span className={`delta delta-${direction}`}>
+          <span className="delta-was">{from ?? "--"}</span>
+          {direction === "up" ? "↑" : direction === "down" ? "↓" : "→"}
+        </span>
+      )}
+      {statusMoved && (
+        <span className={`status-move status-move-${change.status}`}>now {change.status}</span>
+      )}
+    </span>
+  );
+}
 
 export default function ListingsPage() {
   const router = useRouter();
@@ -88,7 +118,11 @@ export default function ListingsPage() {
       </div>
 
       {(rescore.running || rescore.finished) && (
-        <div className="panel rescore-summary">
+        <div
+          className={`panel rescore-summary${
+            rescore.finished ? (rescore.changed > 0 ? " did-change" : " no-change") : ""
+          }`}
+        >
           {rescore.running ? (
             <>
               <p>
@@ -112,7 +146,8 @@ export default function ListingsPage() {
           ) : (
             <p>
               Re-scored {rescore.done} listing{rescore.done === 1 ? "" : "s"};{" "}
-              <strong>{rescore.changed}</strong> changed.{" "}
+              <strong>{rescore.changed}</strong> changed
+              {rescore.changed > 0 ? " — marked in the list below." : "; the queue is unchanged."}{" "}
               <button className="link-button" onClick={clearRescore}>
                 Dismiss
               </button>
@@ -156,10 +191,16 @@ export default function ListingsPage() {
 
       {listings && listings.length > 0 && (
         <div className="app-list">
-          {listings.map((l) => (
-            <div key={l.id} className="app-card static">
+          {listings.map((l) => {
+            const change = rescore.changes[l.id];
+            return (
+            <div key={l.id} className={`app-card static${change ? " changed" : ""}`}>
               <div className="listing-main">
-                {l.score !== null && <span className="score-chip">{l.score}</span>}
+                {l.score !== null && (
+                  <span className={`score-chip${change ? " score-chip-changed" : ""}`}>
+                    {l.score}
+                  </span>
+                )}
                 <div>
                   <div className="role">
                     {l.url ? (
@@ -173,6 +214,7 @@ export default function ListingsPage() {
                   <div className="company">
                     {l.company ?? "Unknown company"}
                     {l.location ? ` · ${l.location}` : ""}
+                    {change && <ScoreChange change={change} />}
                   </div>
                   {l.filter_conflict && (
                     <div className="filter-conflict" title="Kept because you chose it">
@@ -197,7 +239,8 @@ export default function ListingsPage() {
                 )}
               </div>
             </div>
-          ))}
+            );
+          })}
         </div>
       )}
 

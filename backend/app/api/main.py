@@ -42,6 +42,7 @@ from app.api.schemas import (
     Preferences,
     PreferencesUpdate,
     RegenerateRequest,
+    RescoredListing,
     RescoreRequest,
     RescoreResult,
     ResumeUpdate,
@@ -400,10 +401,22 @@ def rescore_listings(
     candidate = profiles.get_or_create_default_candidate()
     assert candidate.id is not None
     results = ingestor.rescore(candidate.id, listing_ids=body.listing_ids if body else None)
+    moved = [r for r in results if r.score_changed or r.status_changed]
     return RescoreResult(
         total=len(results),
-        changed=sum(1 for r in results if r.score_changed or r.status_changed),
+        changed=len(moved),
         flagged=[ListingSummary.build(r.listing, None) for r in results if r.flagged],
+        results=[
+            RescoredListing(
+                id=r.listing.id,  # type: ignore[arg-type]
+                previous_score=r.previous_score,
+                score=r.listing.score,
+                previous_status=str(r.previous_status),
+                status=str(r.listing.status),
+                flagged=r.flagged,
+            )
+            for r in moved
+        ],
     )
 
 

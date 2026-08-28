@@ -7,7 +7,7 @@
 // client-side navigation, and the ingest run is mirrored to localStorage so a
 // full reload still shows the last run.
 
-import { api, toProblem, type IngestResult, type ListingSummary, type Problem } from "@/lib/api";
+import { api, toProblem, type IngestResult, type ListingSummary, type Problem, type RescoredListing } from "@/lib/api";
 
 export type RowStatus = "pending" | "running" | "done" | "abandoned";
 /** `error` is a skip reason from a successful call ("not a single posting");
@@ -172,6 +172,9 @@ export type RescoreState = {
   changed: number;
   flagged: ListingSummary[];
   finished: boolean;
+  /** What moved, by listing id, so the queue can show it in place. Cleared
+   *  when the summary is dismissed — it describes one run, not the world. */
+  changes: Record<string, RescoredListing>;
 };
 
 const NO_RESCORE: RescoreState = {
@@ -181,6 +184,7 @@ const NO_RESCORE: RescoreState = {
   changed: 0,
   flagged: [],
   finished: false,
+  changes: {},
 };
 
 // The queue is worked through in batches: the server scores a batch in
@@ -221,12 +225,16 @@ export async function startRescore(ids: string[]): Promise<void> {
 
   let changed = 0;
   const flagged: ListingSummary[] = [];
+  const changes: Record<string, RescoredListing> = {};
   try {
     for (let i = 0; i < ids.length; i += RESCORE_BATCH) {
       const batch = ids.slice(i, i + RESCORE_BATCH);
       const result = await api.rescoreListings(batch);
       changed += result.changed;
       flagged.push(...result.flagged);
+      // Defaulted: an API that predates per-listing results still works, it
+      // just can't mark up the queue.
+      for (const r of result.results ?? []) changes[r.id] = r;
       setRescore({
         running: true,
         done: Math.min(i + batch.length, ids.length),
@@ -234,6 +242,7 @@ export async function startRescore(ids: string[]): Promise<void> {
         changed,
         flagged,
         finished: false,
+        changes: { ...changes },
       });
     }
     setRescore({ ...rescoreState, running: false, finished: true });

@@ -65,10 +65,21 @@ export type ListingSummary = {
   filter_conflict: string | null;
 };
 
+/** One listing's before and after — what the queue marks up after a rescore. */
+export type RescoredListing = {
+  id: string;
+  previous_score: number | null;
+  score: number | null;
+  previous_status: string;
+  status: string;
+  flagged: boolean;
+};
+
 export type RescoreResult = {
   total: number;
   changed: number;
   flagged: ListingSummary[];
+  results: RescoredListing[]; // only the ones that moved
 };
 
 export type ApplicationSummary = {
@@ -184,8 +195,12 @@ const UNREACHABLE: Problem = {
 export function toProblem(e: unknown): Problem {
   if (e instanceof ApiError) return e.problem;
   const message = e instanceof Error ? e.message : String(e);
-  // A thrown TypeError from fetch means the request never left the browser.
-  if (e instanceof TypeError) return UNREACHABLE;
+  // A failed fetch throws a TypeError, but so does any ordinary bug in our own
+  // code — reading a field the API didn't send, say. Blaming the network for
+  // those is the exact misdiagnosis this module exists to stop, so match the
+  // message rather than the type. (request() already turns a genuine fetch
+  // failure into an ApiError above; this only catches fetches made elsewhere.)
+  if (/failed to fetch|load failed|networkerror/i.test(message)) return UNREACHABLE;
   return {
     code: "unexpected",
     title: "Something went wrong",

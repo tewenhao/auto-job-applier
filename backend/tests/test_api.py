@@ -545,6 +545,10 @@ def test_rescore_endpoint_reports_flagged_listings() -> None:
     body = client.post("/api/listings/rescore").json()
     assert body["total"] == 2
     assert body["changed"] == 1  # only `moved` changed score
+    # The queue needs to know *which* moved, not just how many.
+    assert [r["id"] for r in body["results"]] == [str(moved.id)]
+    assert body["results"][0]["previous_score"] == 10
+    assert body["results"][0]["score"] == 90
     assert len(body["flagged"]) == 1
     assert body["flagged"][0]["status"] == "chosen"
     assert "market" in body["flagged"][0]["filter_conflict"]
