@@ -169,6 +169,12 @@ const generating = new Set<string>();
 const genListeners = new Set<() => void>();
 let genSnapshot: string[] = [];
 
+// useSyncExternalStore compares snapshots by identity, so a snapshot getter has
+// to return the *same* value while nothing has changed. Building a fresh array
+// on each call makes every render look like a change, which React reports as
+// "The result of getServerSnapshot should be cached to avoid an infinite loop".
+const NO_GENERATING: string[] = [];
+
 function emitGen() {
   genSnapshot = [...generating];
   genListeners.forEach((l) => l());
@@ -184,7 +190,7 @@ export function getGeneratingSnapshot(): string[] {
 }
 
 export function getGeneratingServerSnapshot(): string[] {
-  return [];
+  return NO_GENERATING;
 }
 
 /** Generate for a listing, tracking it globally so leaving the page is safe. */
