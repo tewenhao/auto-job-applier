@@ -108,7 +108,7 @@ Control flows through the dashboard; data flows through Supabase.
 | 1 | **Candidate Profile** | Ingest all inputs (resume, master-doc, essays, LinkedIn export, GitHub) into the master-superset profile; voice model; preferences. | **Done** |
 | 2 | Listing Ingestion | Manual paste + batch; structured ATS fast-paths and board enumeration (Greenhouse, Lever, Workday, Oracle HCM, Eightfold, iCIMS) with a headless-browser fallback; parse to listing model; score vs preferences. | **Done** |
 | 3 | Application Generation | Tailored one-page resume (LaTeX → PDF) + humanified, voiced cover letter grounded in JD + company values; inspectable ranking + steering. | **Done** |
-| 4 | **Dashboard** | Next.js UI over a FastAPI layer (`ajp serve`): add listings, browse the scored queue, generate, inspect the ranking, steer/regenerate, edit résumé + cover letter, approve; plus profile self-service — ingest documents, interview in a new entry, edit the master-doc. | **Done** |
+| 4 | **Dashboard** | Next.js UI over a FastAPI layer (`ajp serve`): add listings, browse the scored queue, generate, inspect the ranking, steer/regenerate, edit résumé + cover letter, approve; profile self-service (ingest documents, interview in a new entry, edit the master-doc); listing preferences with hard filters marked as such, and re-scoring the queue when they change. Every failure arrives as a diagnosed problem with suggested fixes. | **Done** |
 | 5 | Form Auto-fill | Playwright ATS form-fill + essay answers; field-level review before submit. | **Next** |
 | 6 | Gmail Monitor | Gmail API + Pub/Sub; classify responses; update tracker. | Later |
 | 7 | Tracker | Supabase as source of truth + Notion-synced human-readable view. | Later |

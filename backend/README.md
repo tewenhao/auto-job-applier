@@ -69,6 +69,7 @@ Authoring the master-doc is supported by two skills in `.claude/skills/`:
 ```bash
 uv run ajp listings add --url <job-url>          # ingest + score one listing
 uv run ajp listings add-batch --file links.txt   # ingest + score many at once
+uv run ajp listings rescore                     # re-score the queue after changing preferences
 uv run ajp listings list | show <id> | choose <id> | dismiss <id>
 ```
 

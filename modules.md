@@ -148,13 +148,20 @@ carries both a concise summary and long-form detail, plus links to evidence.
 ## Module 4 — Dashboard
 - **Responsibility:** the browser surface for the whole loop — add listings,
   review the scored queue, generate, inspect the ranking, steer and regenerate,
-  hand-edit the résumé and cover letter, approve.
+  hand-edit the résumé and cover letter, approve. Also the profile itself
+  (ingest a document, interview in an entry, edit the master-doc) and the
+  preferences that decide which listings reach the queue, with re-scoring when
+  they change.
 - **Interface:** a FastAPI layer (`ajp serve`) over the existing repositories
   and generation pipeline, and a Next.js client over that API. The API holds no
   logic the CLI doesn't, so the two cannot drift.
 - **Key concepts:** every mutation is still HITL — the dashboard prepares and
   the user decides. Hand-edits re-render deterministically (no model call),
-  which keeps "the model drafts" and "I am the final author" separate.
+  which keeps "the model drafts" and "I am the final author" separate. A
+  decision the user has made by hand is never overruled by a rule: re-scoring
+  flags a chosen listing its filters would now exclude, rather than dropping it.
+  Failures are reported as a cause plus what to try, never a bare 500 — and so
+  are the quiet ones, like a résumé that came out two pages.
 - **Depends on:** Modules 1–3, reads Supabase.
 
 ## Module 5 — Form Auto-fill

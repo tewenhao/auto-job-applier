@@ -3,7 +3,8 @@
 Ordered roughly by dependency. Module 1 is broken into concrete steps; later
 modules are high-level phases, expanded when we reach them.
 
-**Status: Modules 1–4 complete. Module 5 (Form auto-fill) next.**
+**Status: Modules 1–4 complete and merged to `main`. Module 5 (Form auto-fill)
+is next, on `feat/autofill`.**
 Phase 3's interview was eventually built, scoped down: it captures **one new
 entry into the master-doc at a time** (`ajp interview`, or the dashboard's
 Profile page) rather than sweeping the whole profile for gaps. Preferences stay
@@ -141,6 +142,19 @@ structured, via the `ajp preferences` commands.
 - [x] Review loop: `ajp application list` / `show` / `approve [--submitted]`.
 - [x] Live check: `voice build`, then `generate` for chosen listings; reviewed
       and iterated (Citadel, GIC, and others).
+- [x] Résumé headings wrap instead of overflowing. A long project name plus its
+      tool list sat in an `l` column — a single unbreakable line — so LaTeX
+      printed it past the right margin. Caught by compiling and reading the
+      overfull-\hbox warnings, which is the only way this is visible; a test
+      now compiles a long heading and asserts there are none.
+- [x] The trim loop says which way it stopped: nothing left to trim, or out of
+      rounds. Both used to print "at the content floor", which sent a real
+      investigation at the wrong thing.
+- [x] Prompt caching across the generation routes: the ~17.5k-token profile is
+      now the cached prefix rather than being re-sent at full price on every
+      call, which meant reordering the prompts so the stable half precedes the
+      per-listing half. Measured at ~85% off the prompt cost of every
+      application after the first — see `decisions.md`.
 
 ## Module 4 — Dashboard (branch: feat/dashboard)
 - [x] FastAPI layer over the existing repositories + pipeline (`ajp serve`), so
@@ -174,9 +188,32 @@ structured, via the `ajp preferences` commands.
       died on navigation, every document downloaded as `resume.pdf`, steering
       moved the ranking but not what trimming cut, and trimming deleted whole
       entries before touching a bullet. All fixed.
+- [x] Every failure reaches the browser as something to act on: `{code, title,
+      message, fixes}` instead of "500: Internal Server Error", with the causes
+      that actually happen here diagnosed by name (out of credit, a rejected
+      key, rate limiting, a truncated response, a missing master-doc, an
+      unreachable Supabase). The silent ones are reported too — a résumé that
+      came out two pages, or a PDF that never compiled, used to look like
+      success.
+- [x] Listing preferences on the Priorities page — the six settings that decide
+      which listings reach the queue, with the two that are HARD FILTERS
+      (markets, avoid) separated from the four that only move the score, since
+      the difference is invisible until a role silently disappears. Markets are
+      picked from the closed set the parser classifies into, because a typo
+      there empties the queue.
+- [x] Re-score the queue against changed preferences without re-ingesting
+      (`ajp listings rescore` + a button): no fetch, no re-parse, four scoring
+      calls at a time. A listing already chosen, dismissed or applied to keeps
+      its status — if the current hard filters would now drop it, it is flagged,
+      not dropped. The list marks what moved, old score to new.
 - [x] Live check: a full interview in the browser, including resuming a session
       left unfinished the day before — the transcript came back intact, the
       doubled-up user turn from the old wedging bug included.
+- [x] Live check: preferences → rescore in the browser. It surfaced two bugs
+      unit tests missed — a listing with no URL crashed the whole run on a
+      primary-key collision (the repository keyed identity on URL alone), and
+      the dashboard reported a missing API field as "can't reach the backend",
+      the exact misdiagnosis the error work exists to prevent.
 
 ## Later phases (expanded when reached)
 - [ ] **Module 5** — Form auto-fill (Playwright) + essay answers + field review.
