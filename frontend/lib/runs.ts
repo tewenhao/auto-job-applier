@@ -7,10 +7,23 @@
 // client-side navigation, and the ingest run is mirrored to localStorage so a
 // full reload still shows the last run.
 
-import { api, type IngestResult } from "@/lib/api";
+import { api, toProblem, type IngestResult, type Problem } from "@/lib/api";
 
 export type RowStatus = "pending" | "running" | "done" | "abandoned";
-export type Row = IngestResult & { status: RowStatus };
+/** `error` is a skip reason from a successful call ("not a single posting");
+ *  `problem` is a failure with something to do about it. They are different
+ *  things and read differently in the UI. */
+export type Row = IngestResult & { status: RowStatus; problem?: Problem | null };
+
+/** Failures that will hit every remaining URL in the batch too, so there is no
+ *  point grinding through 30 of them to say the same thing 30 times. */
+const FATAL = new Set([
+  "llm_no_credit",
+  "llm_auth",
+  "api_unreachable",
+  "database_unreachable",
+  "llm_rate_limit",
+]);
 
 export type IngestState = { rows: Row[]; running: boolean };
 
@@ -98,13 +111,28 @@ export async function startUrlRun(urls: string[]): Promise<void> {
       const res = await api.ingestListing({ url: urls[i] });
       replaceRow(i, { ...res, status: "done" });
     } catch (e) {
+      const problem = toProblem(e);
       replaceRow(i, {
         url: urls[i],
         listings: [],
         expanded: false,
-        error: String((e as Error).message ?? e),
+        error: null,
+        problem,
         status: "done",
       });
+      if (FATAL.has(problem.code)) {
+        // Stop, and say so on the rest rather than leaving them looking pending.
+        for (let j = i + 1; j < urls.length; j++) {
+          replaceRow(j, {
+            url: urls[j],
+            listings: [],
+            expanded: false,
+            error: "Not attempted — the run stopped at the failure above.",
+            status: "done",
+          });
+        }
+        break;
+      }
     }
   }
   set({ ...state, running: false });
@@ -127,7 +155,8 @@ export async function startTextRun(text: string): Promise<void> {
           url: null,
           listings: [],
           expanded: false,
-          error: String((e as Error).message ?? e),
+          error: null,
+          problem: toProblem(e),
           status: "done",
         },
       ],

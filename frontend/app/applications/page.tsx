@@ -2,17 +2,18 @@
 
 import Link from "next/link";
 import { useEffect, useState } from "react";
-import { api, type ApplicationSummary } from "@/lib/api";
+import { api, toProblem, type ApplicationSummary, type Problem } from "@/lib/api";
+import ErrorBox from "@/app/components/ErrorBox";
 
 export default function ApplicationsPage() {
   const [apps, setApps] = useState<ApplicationSummary[] | null>(null);
-  const [error, setError] = useState<string | null>(null);
+  const [error, setError] = useState<Problem | null>(null);
 
   useEffect(() => {
     api
       .listApplications()
       .then(setApps)
-      .catch((e) => setError(String(e.message ?? e)));
+      .catch((e) => setError(toProblem(e)));
   }, []);
 
   return (
@@ -22,12 +23,7 @@ export default function ApplicationsPage() {
         Every generated draft. Open one to review its ranking, steer the selection, and approve.
       </p>
 
-      {error && (
-        <div className="empty">
-          <p className="error">Couldn&apos;t reach the API — is `ajp serve` running?</p>
-          <p className="muted">{error}</p>
-        </div>
-      )}
+      {error && <ErrorBox problem={error} onRetry={() => window.location.reload()} />}
 
       {!error && apps === null && <p className="busy">Loading…</p>}
 

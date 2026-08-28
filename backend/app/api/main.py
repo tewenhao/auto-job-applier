@@ -6,11 +6,13 @@ all delegate to the same repositories and pipeline the CLI uses.
 
 from __future__ import annotations
 
+import logging
 from uuid import UUID
 
-from fastapi import Depends, FastAPI, File, Form, HTTPException, UploadFile
+from fastapi import Depends, FastAPI, File, Form, HTTPException, Request, UploadFile
+from fastapi.exceptions import RequestValidationError
 from fastapi.middleware.cors import CORSMiddleware
-from fastapi.responses import FileResponse
+from fastapi.responses import FileResponse, JSONResponse
 
 from app.api import service
 from app.api.deps import (
@@ -19,6 +21,7 @@ from app.api.deps import (
     get_listings_repo,
     get_profile_repo,
 )
+from app.api.errors import Problem, as_http, diagnose, generic
 from app.api.schemas import (
     ApplicationDetail,
     ApplicationSummary,
@@ -59,6 +62,49 @@ app.add_middleware(
     allow_methods=["*"],
     allow_headers=["*"],
 )
+
+log = logging.getLogger(__name__)
+
+
+# --- errors ------------------------------------------------------------------
+# Every failure leaves here in one shape — {"detail": {code, title, message,
+# fixes}} — so the dashboard has exactly one thing to render, and always has
+# something to suggest. Without these handlers an unexpected failure reaches the
+# browser as "500: Internal Server Error", which tells the user nothing.
+def _problem_response(problem: Problem) -> JSONResponse:
+    return JSONResponse(status_code=problem.status, content={"detail": problem.as_detail()})
+
+
+@app.exception_handler(HTTPException)
+async def _handle_http_exception(_request: Request, exc: HTTPException) -> JSONResponse:
+    """Endpoints may raise a structured Problem or a plain string; normalise both."""
+    if isinstance(exc.detail, dict) and "code" in exc.detail:
+        return JSONResponse(status_code=exc.status_code, content={"detail": exc.detail})
+    return _problem_response(generic(exc.status_code, str(exc.detail)))
+
+
+@app.exception_handler(RequestValidationError)
+async def _handle_validation_error(_request: Request, exc: RequestValidationError) -> JSONResponse:
+    fields = ", ".join(".".join(str(p) for p in e["loc"][1:]) or "body" for e in exc.errors())
+    return _problem_response(
+        Problem(
+            code="invalid_request",
+            title="The form couldn't be submitted",
+            message=f"The request was missing or malformed in: {fields}.",
+            fixes=[
+                "Check the fields above and try again.",
+                "If the page looks stale, reload it — the UI may be out of date with the API.",
+            ],
+            status=422,
+        )
+    )
+
+
+@app.exception_handler(Exception)
+async def _handle_unexpected(_request: Request, exc: Exception) -> JSONResponse:
+    """Anything not raised deliberately: diagnose it rather than return a bare 500."""
+    log.exception("Unhandled error serving the dashboard")
+    return _problem_response(diagnose(exc))
 
 
 def _load(app_id: UUID, gen: GenerationRepository) -> Application:
@@ -112,7 +158,9 @@ def list_profile_entries() -> list[MasterDocEntry]:
     try:
         return [MasterDocEntry(**e) for e in service.list_master_doc_entries()]
     except FileNotFoundError as exc:
-        raise HTTPException(status_code=400, detail=str(exc)) from exc
+        # diagnose() knows this one: it names MASTER_DOC_PATH and the fact that
+        # a relative path resolves from the repo root, which is the usual trip-up.
+        raise as_http(diagnose(exc)) from exc
 
 
 @app.put("/api/profile/entries")
@@ -128,7 +176,9 @@ def edit_profile_entry(
             body.heading, body.markdown, candidate_id=candidate.id
         )
     except FileNotFoundError as exc:
-        raise HTTPException(status_code=400, detail=str(exc)) from exc
+        # diagnose() knows this one: it names MASTER_DOC_PATH and the fact that
+        # a relative path resolves from the repo root, which is the usual trip-up.
+        raise as_http(diagnose(exc)) from exc
     except KeyError as exc:
         raise HTTPException(status_code=404, detail=str(exc)) from exc
     return CommitEntryResponse(master_doc_path=path, ingested=summary)
@@ -296,7 +346,9 @@ def commit_profile_entry(
             body.section, body.markdown, candidate_id=candidate.id
         )
     except FileNotFoundError as exc:
-        raise HTTPException(status_code=400, detail=str(exc)) from exc
+        # diagnose() knows this one: it names MASTER_DOC_PATH and the fact that
+        # a relative path resolves from the repo root, which is the usual trip-up.
+        raise as_http(diagnose(exc)) from exc
     if body.session_id is not None:
         profiles.complete_interview_session(body.session_id)
     return CommitEntryResponse(master_doc_path=path, ingested=summary)

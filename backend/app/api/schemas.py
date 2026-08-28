@@ -57,6 +57,19 @@ class ApplicationSummary(BaseModel):
         )
 
 
+class Notice(BaseModel):
+    """Something the user should know about, in the same shape as an error.
+
+    Rendered by the same component, so "this came out two pages" reads like any
+    other problem: what happened, and what to try.
+    """
+
+    code: str
+    title: str
+    message: str
+    fixes: list[str] = Field(default_factory=list)
+
+
 class ApplicationDetail(BaseModel):
     id: UUID
     listing_id: UUID
@@ -69,15 +82,31 @@ class ApplicationDetail(BaseModel):
     cover_letter_pdf_available: bool = False
     steer: str | None = None  # the standing/per-application steer last used
     posting_url: str | None = None  # original job-portal posting
+    notices: list[Notice] = Field(default_factory=list)  # e.g. "this is 2 pages"
 
     @classmethod
     def build(cls, app: Application, listing: Listing | None) -> ApplicationDetail:
         from pathlib import Path
 
-        from app.api.service import COVER_LETTER_PDF_KEY
+        from app.api.errors import page_fit_notice
+        from app.api.service import COVER_LETTER_PDF_KEY, PAGE_FIT_KEY
 
         resume = TailoredResume.model_validate(app.resume_content) if app.resume_content else None
         pdf = app.resume_pdf_path
+
+        # How the last render came out. Absent on applications generated before
+        # this was recorded, which simply means nothing to report.
+        fit = app.meta.get(PAGE_FIT_KEY) or {}
+        notice = (
+            page_fit_notice(
+                pages=fit.get("pages"),
+                stop_reason=str(fit.get("stop_reason", "")),
+                max_pages=int(fit.get("max_pages") or 1),
+                trims=int(fit.get("trims") or 0),
+            )
+            if fit
+            else None
+        )
         cl_pdf = app.meta.get(COVER_LETTER_PDF_KEY)
         return cls(
             id=app.id,  # type: ignore[arg-type]
@@ -91,6 +120,7 @@ class ApplicationDetail(BaseModel):
             resume_pdf_available=bool(pdf and Path(pdf).exists()),
             cover_letter_pdf_available=bool(cl_pdf and Path(cl_pdf).exists()),
             steer=app.meta.get("steer"),
+            notices=[Notice(**notice.as_detail())] if notice else [],
         )
 
 

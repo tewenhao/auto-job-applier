@@ -1,7 +1,8 @@
 "use client";
 
 import { useEffect, useRef, useState } from "react";
-import { api, type InterviewTurn, type MasterDocEntry } from "@/lib/api";
+import { api, toProblem, type InterviewTurn, type MasterDocEntry, type Problem } from "@/lib/api";
+import ErrorBox from "@/app/components/ErrorBox";
 
 const SOURCE_TYPES = [
   { value: "resume", label: "Résumé" },
@@ -19,7 +20,7 @@ export default function ProfilePage() {
   const [transcript, setTranscript] = useState<InterviewTurn[]>([]);
   const [answer, setAnswer] = useState("");
   const [busy, setBusy] = useState(false);
-  const [error, setError] = useState<string | null>(null);
+  const [error, setError] = useState<Problem | null>(null);
 
   // The drafted master-doc entry, editable before it is written.
   const [section, setSection] = useState("experience");
@@ -43,7 +44,7 @@ export default function ProfilePage() {
     api
       .getProfile()
       .then((p) => setProfile(p.markdown))
-      .catch((e) => setError(String(e.message ?? e)));
+      .catch((e) => setError(toProblem(e)));
     // Pick up an interview left unfinished (here or in `ajp interview`).
     api
       .interviewState()
@@ -67,7 +68,7 @@ export default function ProfilePage() {
     api
       .listEntries()
       .then(setEntries)
-      .catch((e) => setError(String(e.message ?? e)));
+      .catch((e) => setError(toProblem(e)));
 
   useEffect(() => {
     loadEntries();
@@ -91,7 +92,7 @@ export default function ProfilePage() {
       setIngestNote(`Ingested ${res.filename}: ${counts}`);
       await refreshProfile();
     } catch (e) {
-      setError(String((e as Error).message ?? e));
+      setError(toProblem(e));
     } finally {
       setIngesting(false);
       if (fileRef.current) fileRef.current.value = "";
@@ -110,7 +111,7 @@ export default function ProfilePage() {
       setIngestNote(`Pulled @${res.username}: ${counts}`);
       await refreshProfile();
     } catch (e) {
-      setError(String((e as Error).message ?? e));
+      setError(toProblem(e));
     } finally {
       setIngesting(false);
     }
@@ -126,7 +127,7 @@ export default function ProfilePage() {
       setEditing(null);
       await refreshProfile();
     } catch (e) {
-      setError(String((e as Error).message ?? e));
+      setError(toProblem(e));
     } finally {
       setBusy(false);
     }
@@ -146,7 +147,7 @@ export default function ProfilePage() {
         setPhase("review");
       }
     } catch (e) {
-      setError(String((e as Error).message ?? e));
+      setError(toProblem(e));
     } finally {
       setBusy(false);
     }
@@ -161,7 +162,7 @@ export default function ProfilePage() {
       setMarkdown(draft.markdown);
       setPhase("review");
     } catch (e) {
-      setError(String((e as Error).message ?? e));
+      setError(toProblem(e));
     } finally {
       setBusy(false);
     }
@@ -191,7 +192,7 @@ export default function ProfilePage() {
       const p = await api.getProfile();
       setProfile(p.markdown);
     } catch (e) {
-      setError(String((e as Error).message ?? e));
+      setError(toProblem(e));
     } finally {
       setBusy(false);
     }
@@ -352,7 +353,7 @@ export default function ProfilePage() {
           </div>
         )}
 
-        {error && <p className="error">{error}</p>}
+        {error && <ErrorBox problem={error} onDismiss={() => setError(null)} />}
       </section>
 
       {/* ---- master-doc entries ---- */}

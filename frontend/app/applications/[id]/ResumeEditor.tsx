@@ -1,7 +1,8 @@
 "use client";
 
 import { useState } from "react";
-import { api, type TailoredResume } from "@/lib/api";
+import { api, toProblem, type Problem, type TailoredResume } from "@/lib/api";
+import ErrorBox from "@/app/components/ErrorBox";
 
 // A generic record with string fields + optional bullets, so experience,
 // projects, education, and skills all reuse one editor.
@@ -154,7 +155,7 @@ export default function ResumeEditor({
     structuredClone(resume) as TailoredResume,
   );
   const [saving, setSaving] = useState(false);
-  const [error, setError] = useState<string | null>(null);
+  const [error, setError] = useState<Problem | null>(null);
 
   const patch = (p: Partial<TailoredResume>) => setDraft({ ...draft, ...p });
 
@@ -165,7 +166,7 @@ export default function ResumeEditor({
       const updated = await api.saveResume(appId, draft);
       onSaved(updated);
     } catch (e) {
-      setError(String((e as Error).message ?? e));
+      setError(toProblem(e));
       setSaving(false);
     }
   }
@@ -246,7 +247,7 @@ export default function ResumeEditor({
           Cancel
         </button>
       </div>
-      {error && <p className="error">{error}</p>}
+      {error && <ErrorBox problem={error} onDismiss={() => setError(null)} />}
     </div>
   );
 }

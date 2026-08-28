@@ -384,4 +384,91 @@ def test_commit_profile_entry_without_a_master_doc_is_a_400(monkeypatch) -> None
     client = _profile_client()
     resp = client.post("/api/profile/entries", json={"markdown": "### x"})
     assert resp.status_code == 400
-    assert "MASTER_DOC_PATH" in resp.json()["detail"]
+    detail = resp.json()["detail"]
+    # Structured, and actionable: it names the setting and how to set it.
+    assert detail["code"] == "master_doc_missing"
+    assert "MASTER_DOC_PATH" in " ".join(detail["fixes"])
+    assert detail["title"] and detail["message"]
+
+
+# --- errors reach the UI as something a person can act on --------------------
+
+
+def test_an_unexpected_failure_is_diagnosed_not_a_bare_500() -> None:
+    """A raw "500: Internal Server Error" tells the user nothing. Every failure
+    leaves the API as {code, title, message, fixes}."""
+    listing = _listing()
+    a = _application(listing.id)
+
+    class Exploding(FakeGenRepo):
+        def get_application(self, application_id):  # noqa: ANN001, ANN201
+            raise RuntimeError("the database went away")
+
+    app.dependency_overrides[get_gen_repo] = lambda: Exploding([a])
+    app.dependency_overrides[get_listings_repo] = lambda: FakeListingsRepo([listing])
+    app.dependency_overrides[get_profile_repo] = lambda: FakeProfileRepo()
+    client = TestClient(app, raise_server_exceptions=False)
+
+    resp = client.get(f"/api/applications/{a.id}")
+    assert resp.status_code == 500
+    detail = resp.json()["detail"]
+    assert detail["code"] == "unexpected"
+    assert "the database went away" in detail["message"]
+    assert detail["fixes"], "an error with no suggested fix is the thing we set out to remove"
+
+
+def test_a_known_failure_names_the_actual_fix() -> None:
+    """The one that started this: out of credit mid-generation."""
+    import anthropic
+
+    listing = _listing()
+    a = _application(listing.id)
+
+    class OutOfCredit(FakeGenRepo):
+        def get_application(self, application_id):  # noqa: ANN001, ANN201
+            raise anthropic.BadRequestError.__new__(
+                anthropic.BadRequestError,
+                "Error code: 400 - Your credit balance is too low to access the Anthropic API",
+            )
+
+    app.dependency_overrides[get_gen_repo] = lambda: OutOfCredit([a])
+    app.dependency_overrides[get_listings_repo] = lambda: FakeListingsRepo([listing])
+    app.dependency_overrides[get_profile_repo] = lambda: FakeProfileRepo()
+    client = TestClient(app, raise_server_exceptions=False)
+
+    detail = client.get(f"/api/applications/{a.id}").json()["detail"]
+    assert detail["code"] == "llm_no_credit"
+    assert any("billing" in f for f in detail["fixes"])
+    assert "Nothing was lost" in detail["message"]  # say what wasn't broken, too
+
+
+def test_a_two_page_resume_is_reported_on_the_application() -> None:
+    """It used to be silent in the dashboard: the résumé simply came out long."""
+    from app.api.service import PAGE_FIT_KEY
+
+    listing = _listing()
+    a = _application(listing.id)
+    a.meta = {
+        **a.meta,
+        PAGE_FIT_KEY: {"pages": 2, "stop_reason": "iterations", "trims": 20, "max_pages": 1},
+    }
+    client = _client(apps=[a], listings=[listing])
+
+    notices = client.get(f"/api/applications/{a.id}").json()["notices"]
+    assert len(notices) == 1
+    assert notices[0]["code"] == "over_page_limit_gave_up"
+    assert "2 pages" in notices[0]["title"]
+    assert any("Regenerate" in f for f in notices[0]["fixes"])
+
+
+def test_a_resume_that_fits_reports_nothing() -> None:
+    from app.api.service import PAGE_FIT_KEY
+
+    listing = _listing()
+    a = _application(listing.id)
+    a.meta = {
+        **a.meta,
+        PAGE_FIT_KEY: {"pages": 1, "stop_reason": "fits", "trims": 3, "max_pages": 1},
+    }
+    client = _client(apps=[a], listings=[listing])
+    assert client.get(f"/api/applications/{a.id}").json()["notices"] == []

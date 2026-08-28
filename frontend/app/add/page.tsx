@@ -2,6 +2,7 @@
 
 import Link from "next/link";
 import { useRouter } from "next/navigation";
+import ErrorBox from "@/app/components/ErrorBox";
 import { useEffect, useState, useSyncExternalStore } from "react";
 import {
   clearIngestRun,
@@ -157,6 +158,7 @@ export default function AddListingsPage() {
                   </div>
                 )}
 
+                {row.problem && <ErrorBox problem={row.problem} />}
                 {row.error && <div className="error ingest-error">{row.error}</div>}
               </div>
             ))}

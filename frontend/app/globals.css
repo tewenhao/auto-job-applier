@@ -710,3 +710,84 @@ input[type="file"] {
   font-size: 0.85rem;
   color: var(--muted);
 }
+
+/* ---- problems: errors and warnings, told so they can be acted on ---- */
+.problem {
+  border: 1px solid var(--border);
+  border-left: 3px solid var(--danger);
+  border-radius: var(--radius);
+  background: var(--panel-2);
+  padding: 14px 16px;
+  margin: 14px 0;
+  /* Some containers (.empty) centre their children; instructions you are meant
+     to work through must read left-aligned wherever the box is dropped. */
+  text-align: left;
+}
+
+.problem-warning {
+  border-left-color: var(--warn);
+}
+
+.problem-head {
+  display: flex;
+  align-items: baseline;
+  gap: 10px;
+}
+
+.problem-title {
+  margin: 0;
+  font-size: 0.95rem;
+  font-weight: 700;
+  color: var(--danger);
+  flex: 1;
+}
+
+.problem-warning .problem-title {
+  color: var(--warn);
+}
+
+.problem-dismiss {
+  border: none;
+  background: none;
+  color: var(--muted);
+  font-size: 1.2rem;
+  line-height: 1;
+  padding: 0 4px;
+  cursor: pointer;
+}
+
+.problem-message {
+  margin: 6px 0 0;
+  font-size: 0.9rem;
+  line-height: 1.55;
+}
+
+.problem-fixes-label {
+  margin: 12px 0 4px;
+  font-size: 0.76rem;
+  font-weight: 700;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+  color: var(--muted);
+}
+
+.problem-fixes {
+  margin: 0;
+  padding-left: 20px;
+  font-size: 0.88rem;
+  line-height: 1.6;
+}
+
+.problem-fixes li {
+  margin-bottom: 3px;
+}
+
+.problem-fixes code,
+.problem-message code {
+  font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+  font-size: 0.85em;
+}
+
+.problem-retry {
+  margin-top: 12px;
+}

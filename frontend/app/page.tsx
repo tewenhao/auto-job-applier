@@ -3,7 +3,8 @@
 import { useRouter } from "next/navigation";
 import Link from "next/link";
 import { useEffect, useState, useSyncExternalStore } from "react";
-import { api, type ListingSummary } from "@/lib/api";
+import { api, toProblem, type ListingSummary, type Problem } from "@/lib/api";
+import ErrorBox from "@/app/components/ErrorBox";
 import {
   getGeneratingServerSnapshot,
   getGeneratingSnapshot,
@@ -14,7 +15,7 @@ import {
 export default function ListingsPage() {
   const router = useRouter();
   const [listings, setListings] = useState<ListingSummary[] | null>(null);
-  const [error, setError] = useState<string | null>(null);
+  const [error, setError] = useState<Problem | null>(null);
   // Tracked outside the component, so navigating away mid-generate is safe.
   const generatingIds = useSyncExternalStore(
     subscribeGenerating,
@@ -27,7 +28,7 @@ export default function ListingsPage() {
     api
       .listListings()
       .then(setListings)
-      .catch((e) => setError(String(e.message ?? e)));
+      .catch((e) => setError(toProblem(e)));
   }, []);
 
   async function generate(listingId: string) {
@@ -36,7 +37,7 @@ export default function ListingsPage() {
       const appId = await startGenerate(listingId);
       if (appId) router.push(`/applications/${appId}`);
     } catch (e) {
-      setError(String((e as Error).message ?? e));
+      setError(toProblem(e));
     }
   }
 
@@ -49,12 +50,7 @@ export default function ListingsPage() {
       </p>
 
       {error && (
-        <div className="empty">
-          <p className="error">
-            {generating ? error : "Couldn't reach the API — is `ajp serve` running?"}
-          </p>
-          {!generating && <p className="muted">{error}</p>}
-        </div>
+        <ErrorBox problem={error} onDismiss={() => setError(null)} />
       )}
 
       {!error && listings === null && <p className="busy">Loading…</p>}

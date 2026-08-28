@@ -1,12 +1,13 @@
 "use client";
 
 import { useEffect, useState } from "react";
-import { api } from "@/lib/api";
+import { api, toProblem, type Problem } from "@/lib/api";
+import ErrorBox from "@/app/components/ErrorBox";
 
 export default function PrioritiesPage() {
   const [guidance, setGuidance] = useState("");
   const [saved, setSaved] = useState<string | null>(null); // last-persisted value
-  const [error, setError] = useState<string | null>(null);
+  const [error, setError] = useState<Problem | null>(null);
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
 
@@ -17,7 +18,7 @@ export default function PrioritiesPage() {
         setGuidance(p.resume_guidance ?? "");
         setSaved(p.resume_guidance ?? "");
       })
-      .catch((e) => setError(String(e.message ?? e)))
+      .catch((e) => setError(toProblem(e)))
       .finally(() => setLoading(false));
   }, []);
 
@@ -29,7 +30,7 @@ export default function PrioritiesPage() {
       setGuidance(p.resume_guidance ?? "");
       setSaved(p.resume_guidance ?? "");
     } catch (e) {
-      setError(String((e as Error).message ?? e));
+      setError(toProblem(e));
     } finally {
       setSaving(false);
     }
@@ -76,7 +77,7 @@ export default function PrioritiesPage() {
             <div className="spacer" />
             {!dirty && saved && <span className="muted">Saved.</span>}
           </div>
-          {error && <p className="error">{error}</p>}
+          {error && <ErrorBox problem={error} onDismiss={() => setError(null)} />}
         </section>
       )}
     </div>

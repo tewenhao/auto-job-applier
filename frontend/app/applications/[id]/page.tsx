@@ -2,14 +2,15 @@
 
 import Link from "next/link";
 import { use, useEffect, useState } from "react";
-import { api, type ApplicationDetail, type RankedItem } from "@/lib/api";
+import { api, toProblem, type ApplicationDetail, type Problem, type RankedItem } from "@/lib/api";
+import ErrorBox from "@/app/components/ErrorBox";
 import ResumeEditor from "./ResumeEditor";
 
 export default function ApplicationPage({ params }: { params: Promise<{ id: string }> }) {
   const { id } = use(params);
 
   const [app, setApp] = useState<ApplicationDetail | null>(null);
-  const [error, setError] = useState<string | null>(null);
+  const [error, setError] = useState<Problem | null>(null);
   const [steer, setSteer] = useState("");
   const [busy, setBusy] = useState<null | "regenerate" | "approve" | "submit">(null);
   const [editing, setEditing] = useState(false);
@@ -24,7 +25,7 @@ export default function ApplicationPage({ params }: { params: Promise<{ id: stri
         setApp(a);
         setSteer(a.steer ?? "");
       })
-      .catch((e) => setError(String(e.message ?? e)));
+      .catch((e) => setError(toProblem(e)));
   }, [id]);
 
   async function run<T>(kind: typeof busy, fn: () => Promise<ApplicationDetail>) {
@@ -35,7 +36,7 @@ export default function ApplicationPage({ params }: { params: Promise<{ id: stri
       setApp(updated);
       setSteer(updated.steer ?? "");
     } catch (e) {
-      setError(String((e as Error).message ?? e));
+      setError(toProblem(e));
     } finally {
       setBusy(null);
     }
@@ -49,7 +50,7 @@ export default function ApplicationPage({ params }: { params: Promise<{ id: stri
       setApp(updated);
       setEditingCover(false);
     } catch (e) {
-      setError(String((e as Error).message ?? e));
+      setError(toProblem(e));
     } finally {
       setSavingCover(false);
     }
@@ -62,7 +63,8 @@ export default function ApplicationPage({ params }: { params: Promise<{ id: stri
           ← All applications
         </Link>
         <div className="empty">
-          <p className="error">{error}</p>
+          {/* Nothing loaded, so retrying is the whole of the recovery path. */}
+          <ErrorBox problem={error} onRetry={() => window.location.reload()} retryLabel="Reload" />
         </div>
       </div>
     );
@@ -144,7 +146,11 @@ export default function ApplicationPage({ params }: { params: Promise<{ id: stri
             Running company research, tailoring, and LaTeX — this takes a moment.
           </p>
         )}
-        {error && <p className="error">{error}</p>}
+        {error && <ErrorBox problem={error} onDismiss={() => setError(null)} />}
+        {/* Silent before: a résumé could come out two pages and nothing said so. */}
+        {app.notices?.map((n) => (
+          <ErrorBox key={n.code} problem={n} tone="warning" />
+        ))}
       </section>
 
       {/* ---- ranking ---- */}

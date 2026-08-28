@@ -28,6 +28,10 @@ API_OUT = Path("out/api")
 # meta key holding the compiled cover-letter PDF path (Application has dedicated
 # columns for the resume, but not the cover letter — reuse the meta jsonb).
 COVER_LETTER_PDF_KEY = "cover_letter_pdf_path"
+# How the last render came out (page count + why trimming stopped). Kept on the
+# application so the dashboard can say "this is two pages, here's what to do"
+# on any later visit, not only in the moment it was generated.
+PAGE_FIT_KEY = "page_fit"
 
 
 def _compile_and_store(app: Application, *, max_pages: int) -> Application:
@@ -57,6 +61,15 @@ def _compile_and_store(app: Application, *, max_pages: int) -> Application:
         app.resume_content = result.resume.model_dump(mode="json")
         if result.pdf_path is not None:
             app.resume_pdf_path = str(result.pdf_path)
+        app.meta = {
+            **app.meta,
+            PAGE_FIT_KEY: {
+                "pages": result.pages,
+                "stop_reason": result.stop_reason,
+                "trims": len(result.trims),
+                "max_pages": max_pages,
+            },
+        }
 
     if app.cover_letter:
         (dest / _name(COVER_LETTER, "txt")).write_text(app.cover_letter)
