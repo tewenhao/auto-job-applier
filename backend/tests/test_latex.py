@@ -9,7 +9,9 @@ from pydantic import ValidationError
 
 from app.generation.latex import (
     _render_text,
+    compile_pdf,
     compile_to_page_limit,
+    has_latex_toolchain,
     latex_escape,
     render_resume,
 )
@@ -322,3 +324,55 @@ def test_trim_drops_by_ranking_not_list_position() -> None:
     assert "AI Engineer" in titles  # the steered item survives
     assert "Barista" not in titles  # the lowest-ranked one goes
     assert "rank 10" in note  # and the note says why
+
+
+def test_headings_use_a_wrapping_column() -> None:
+    """A long project name plus its tool list used to run off the right edge:
+    the heading macros put it in an `l` column, which is a single unbreakable
+    line. They must use the wrapping column instead."""
+    tex = render_resume(TailoredResume(), Candidate(full_name="X"))
+    for macro in ("resumeSubheading", "resumeSubSubheading", "resumeProjectHeading"):
+        body = tex.split(f"\\newcommand{{\\{macro}}}")[1].split("\\newcommand")[0]
+        assert "tabularx" in body, macro
+        assert "{@{}L@{\\hspace{1em}}r@{}}" in body, macro
+        assert "l@{\\extracolsep{\\fill}}r" not in body, macro
+    # L is X made ragged-right, to match the rest of the document.
+    assert "\\newcolumntype{L}{>{\\raggedright\\arraybackslash}X}" in tex
+
+
+@pytest.mark.skipif(not has_latex_toolchain(), reason="no LaTeX toolchain")
+def test_a_long_heading_wraps_instead_of_overflowing(tmp_path: Path) -> None:
+    """The real check, and the one no string assertion can make: compile it and
+    ask LaTeX. An overfull \\hbox is text printed past the page margin.
+    """
+    resume = TailoredResume(
+        projects=[
+            ProjectEntry(
+                name=(
+                    "Virtual Global Hackathon 2023, Data Analysis -- Regional Winner "
+                    "(Top 2 Asia-Pacific) & Global Finalist"
+                ),
+                tools="Python, pandas, matplotlib/seaborn, geospatial joins",
+                dates="Aug 2023",
+                end_date="2023",
+                bullets=["Top 10 worldwide of 2,500 competitors."],
+            )
+        ],
+        experience=[
+            ExperienceEntry(
+                title="AI Engineer (Part-time, concurrent with full-time studies)",
+                org="An Organisation With A Notably Long Registered Name",
+                location="Singapore",
+                dates="Jun 2026 -- Present",
+                end_date="present",
+                bullets=["Shipped it."],
+            )
+        ],
+    )
+    tex_path = tmp_path / "r.tex"
+    tex_path.write_text(render_resume(resume, Candidate(full_name="En Hao Tew")))
+    assert compile_pdf(tex_path) is not None
+
+    log = tex_path.with_suffix(".log").read_text(errors="replace")
+    overfull = [ln for ln in log.splitlines() if "Overfull \\hbox" in ln]
+    assert not overfull, "heading overflowed the page: " + "; ".join(overfull)

@@ -70,6 +70,11 @@ _PREAMBLE = r"""%-------------------------
 \raggedright
 \setlength{\tabcolsep}{0in}
 
+% A ragged-right flexible column. Plain `X` justifies, which stretches the word
+% spacing of a wrapped heading and looks nothing like the rest of the document
+% (\raggedright above); the headings use this instead.
+\newcolumntype{L}{>{\raggedright\arraybackslash}X}
+
 \titleformat{\section}{
   \vspace{-4pt}\scshape\raggedright\large
 }{}{0em}{}[\color{black}\titlerule \vspace{-5pt}]
@@ -82,26 +87,31 @@ _PREAMBLE = r"""%-------------------------
   }
 }
 
+% The left column is an `L` (wrapping) column, not `l`. An `l` column is a
+% single unbreakable line, so a long project name plus its tool list ran off the
+% right edge of the page instead of wrapping — LaTeX reports it as an overfull
+% \hbox and prints it anyway. `L` takes whatever width the dates leave and wraps
+% within it; the 1em gap keeps a wrapped heading off the dates.
 \newcommand{\resumeSubheading}[4]{
   \vspace{-2pt}\item
-    \begin{tabular*}{0.97\textwidth}[t]{l@{\extracolsep{\fill}}r}
+    \begin{tabularx}{0.97\textwidth}[t]{@{}L@{\hspace{1em}}r@{}}
       \textbf{#1} & #2 \\
       \textit{\small#3} & \textit{\small #4} \\
-    \end{tabular*}\vspace{-7pt}
+    \end{tabularx}\vspace{-7pt}
 }
 
 \newcommand{\resumeSubSubheading}[2]{
     \item
-    \begin{tabular*}{0.97\textwidth}{l@{\extracolsep{\fill}}r}
+    \begin{tabularx}{0.97\textwidth}[t]{@{}L@{\hspace{1em}}r@{}}
       \textit{\small#1} & \textit{\small #2} \\
-    \end{tabular*}\vspace{-7pt}
+    \end{tabularx}\vspace{-7pt}
 }
 
 \newcommand{\resumeProjectHeading}[2]{
     \item
-    \begin{tabular*}{0.97\textwidth}{l@{\extracolsep{\fill}}r}
+    \begin{tabularx}{0.97\textwidth}[t]{@{}L@{\hspace{1em}}r@{}}
       \small#1 & #2 \\
-    \end{tabular*}\vspace{-7pt}
+    \end{tabularx}\vspace{-7pt}
 }
 
 \newcommand{\resumeSubItem}[1]{\resumeItem{#1}\vspace{-4pt}}
@@ -370,7 +380,7 @@ def compile_to_page_limit(
     tex_path: Path,
     *,
     max_pages: int = 1,
-    max_iterations: int = 12,
+    max_iterations: int = 20,
 ) -> OnePageResult:
     """Render ``resume``, compile, and trim-and-recompile until it fits within
     ``max_pages`` (or nothing more can be trimmed).
