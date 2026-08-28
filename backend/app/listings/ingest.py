@@ -3,6 +3,8 @@
 from __future__ import annotations
 
 from collections.abc import Iterable
+from dataclasses import dataclass
+from typing import Any
 from uuid import UUID
 
 from app.config import get_settings
@@ -35,6 +37,31 @@ def dedupe_preserving_order(urls: Iterable[str]) -> list[str]:
             seen.add(url)
             out.append(url)
     return out
+
+
+# Statuses that record a decision the user made by hand. Rescoring updates the
+# score on these but never the status.
+DECIDED_STATUSES = frozenset(
+    {ListingStatus.CHOSEN, ListingStatus.DISMISSED, ListingStatus.APPLIED}
+)
+
+
+@dataclass
+class Rescored:
+    """One listing's before and after, for reporting what a rescore changed."""
+
+    listing: Listing
+    previous_score: int | None
+    previous_status: ListingStatus
+    flagged: bool  # decided by hand, but the current hard filters would drop it
+
+    @property
+    def score_changed(self) -> bool:
+        return self.listing.score != self.previous_score
+
+    @property
+    def status_changed(self) -> bool:
+        return ListingStatus(self.listing.status) != self.previous_status
 
 
 def build_listing(
@@ -179,21 +206,88 @@ class ListingIngestor:
 
     def score_and_store(self, listing: Listing, *, candidate_id: UUID) -> Listing:
         prefs = self.profile.get_preferences(candidate_id)
+        reason = self._apply_score(
+            listing, prefs=prefs, profile_summary=self._profile_summary(candidate_id)
+        )
+        listing.status = self._status_for(reason, listing.score)
+        return self.listings.upsert(listing)
+
+    def _apply_score(self, listing: Listing, *, prefs: Any, profile_summary: str) -> str | None:
+        """Score ``listing`` in place. Returns the hard-filter reason, if any.
+
+        Shared by ingestion and rescoring so the two can't drift; the caller
+        decides what the outcome means for the listing's status.
+        """
         reason = apply_hard_filters(listing, prefs)
         if reason:
             listing.score = 0
-            listing.status = ListingStatus.FILTERED
             listing.score_rationale = reason
             listing.score_breakdown = {"filtered": reason}
-        else:
-            result = score_listing(self.llm, listing, prefs, self._profile_summary(candidate_id))
-            listing.score = result.score
-            listing.score_rationale = result.rationale
-            listing.score_breakdown = {"matched": result.matched, "missing": result.missing}
-            listing.status = (
-                ListingStatus.SURFACED if result.score >= self.threshold else ListingStatus.NEW
+            return reason
+        result = score_listing(self.llm, listing, prefs, profile_summary)
+        listing.score = result.score
+        listing.score_rationale = result.rationale
+        listing.score_breakdown = {"matched": result.matched, "missing": result.missing}
+        return None
+
+    def _status_for(self, reason: str | None, score: int | None) -> ListingStatus:
+        if reason:
+            return ListingStatus.FILTERED
+        return (
+            ListingStatus.SURFACED
+            if (score or 0) >= self.threshold
+            else ListingStatus.NEW
+        )
+
+    def rescore(self, candidate_id: UUID) -> list[Rescored]:
+        """Re-score every stored listing against the current preferences.
+
+        No fetching and no re-parsing: the posting hasn't changed, only what you
+        asked for has. One cheap scoring call per listing, and the preferences
+        and profile summary are read once rather than per listing.
+
+        A listing you have already decided on — chosen, dismissed, applied — keeps
+        its status. If the current hard filters would now drop one of those, it is
+        **flagged, not dropped**: a filter is triage, and it does not get to
+        overrule a decision made by hand.
+        """
+        prefs = self.profile.get_preferences(candidate_id)
+        profile_summary = self._profile_summary(candidate_id)
+
+        out: list[Rescored] = []
+        for listing in self.listings.list(candidate_id):
+            before_score, before_status = listing.score, ListingStatus(listing.status)
+            decided = before_status in DECIDED_STATUSES
+
+            if decided:
+                reason = apply_hard_filters(listing, prefs)
+                if reason:
+                    # Keep the score it was chosen on; record the conflict beside it.
+                    listing.score_breakdown = {
+                        **listing.score_breakdown,
+                        "filter_conflict": reason,
+                    }
+                else:
+                    self._apply_score(listing, prefs=prefs, profile_summary=profile_summary)
+                    listing.score_breakdown = {
+                        k: v for k, v in listing.score_breakdown.items() if k != "filter_conflict"
+                    }
+                listing.status = before_status  # untouched, either way
+            else:
+                reason = self._apply_score(
+                    listing, prefs=prefs, profile_summary=profile_summary
+                )
+                listing.status = self._status_for(reason, listing.score)
+
+            out.append(
+                Rescored(
+                    listing=self.listings.upsert(listing),
+                    previous_score=before_score,
+                    previous_status=before_status,
+                    flagged=bool(decided and reason),
+                )
             )
-        return self.listings.upsert(listing)
+        return out
 
     def _profile_summary(self, candidate_id: UUID) -> str:
         profile = self.profile.get_master_profile(candidate_id)

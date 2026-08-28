@@ -42,6 +42,7 @@ from app.api.schemas import (
     Preferences,
     PreferencesUpdate,
     RegenerateRequest,
+    RescoreResult,
     ResumeUpdate,
 )
 from app.generation.models import Application, ApplicationStatus
@@ -381,6 +382,27 @@ def list_listings(
         ListingSummary.build(lst, apps_by_listing.get(lst.id) if lst.id else None)
         for lst in listings.list(candidate.id)
     ]
+
+
+@app.post("/api/listings/rescore", response_model=RescoreResult)
+def rescore_listings(
+    ingestor: ListingIngestor = Depends(get_listing_ingestor),
+    profiles: ProfileRepository = Depends(get_profile_repo),
+) -> RescoreResult:
+    """Re-score stored listings against the current preferences.
+
+    Nothing is fetched or re-parsed. Listings already chosen, dismissed or
+    applied to keep their status; one that the current hard filters would now
+    drop comes back flagged instead.
+    """
+    candidate = profiles.get_or_create_default_candidate()
+    assert candidate.id is not None
+    results = ingestor.rescore(candidate.id)
+    return RescoreResult(
+        total=len(results),
+        changed=sum(1 for r in results if r.score_changed or r.status_changed),
+        flagged=[ListingSummary.build(r.listing, None) for r in results if r.flagged],
+    )
 
 
 @app.post("/api/listings/ingest", response_model=IngestResult)

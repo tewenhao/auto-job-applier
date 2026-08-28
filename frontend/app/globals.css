@@ -881,3 +881,28 @@ input[type="file"] {
   margin: 0;
   cursor: pointer;
 }
+
+/* ---- rescoring ---- */
+.rescore-summary {
+  margin-bottom: 16px;
+  font-size: 0.9rem;
+}
+
+.rescore-summary p {
+  margin: 0 0 6px;
+}
+
+.flagged-list {
+  margin: 8px 0 0;
+  padding-left: 20px;
+  font-size: 0.88rem;
+  line-height: 1.6;
+}
+
+/* A kept-but-conflicting listing. Marked, never hidden: the filter is triage,
+   the user's decision is not. */
+.filter-conflict {
+  margin-top: 5px;
+  font-size: 0.82rem;
+  color: var(--warn);
+}

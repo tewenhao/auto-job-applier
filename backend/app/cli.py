@@ -680,6 +680,60 @@ def listings_list(
     typer.echo("\nUse `ajp listings show <id>` for the JD summary and scoring rationale.")
 
 
+@listings_app.command("rescore")
+def listings_rescore() -> None:
+    """Re-score stored listings against your current preferences.
+
+    Nothing is fetched or re-parsed — the postings haven't changed, your
+    preferences have. Listings you've already chosen, dismissed, or applied to
+    keep their status; if the current hard filters would now drop one of those,
+    it is flagged rather than dropped.
+    """
+    from app.listings.ingest import ListingIngestor
+    from app.listings.repository import ListingRepository
+    from app.llm import LLMClient
+    from app.profile.repository import ProfileRepository
+
+    profiles = ProfileRepository()
+    candidate = profiles.get_or_create_default_candidate()
+    assert candidate.id is not None
+
+    llm = LLMClient()
+    typer.echo("Re-scoring against your current preferences ...")
+    results = ListingIngestor(ListingRepository(), profiles, llm).rescore(candidate.id)
+    if not results:
+        typer.secho("No listings to re-score.", fg=typer.colors.YELLOW)
+        return
+
+    moved = [r for r in results if r.score_changed or r.status_changed]
+    for r in sorted(moved, key=lambda r: -(r.listing.score or 0)):
+        before = r.previous_score if r.previous_score is not None else "--"
+        arrow = f"{before} -> {r.listing.score if r.listing.score is not None else '--'}"
+        line = f"  {arrow:>12}  {r.listing.role_title} @ {r.listing.company}"
+        if r.status_changed:
+            line += f"  [{r.previous_status} -> {r.listing.status}]"
+        typer.echo(line)
+
+    flagged = [r for r in results if r.flagged]
+    if flagged:
+        typer.secho(
+            f"\n{len(flagged)} listing(s) you already decided on would now be filtered out. "
+            "Kept as they are — your decision stands:",
+            fg=typer.colors.YELLOW,
+        )
+        for r in flagged:
+            reason = r.listing.score_breakdown.get("filter_conflict", "filtered")
+            typer.echo(f"  {r.listing.role_title} @ {r.listing.company} ({r.listing.status})")
+            typer.secho(f"      {reason}", dim=True)
+
+    typer.secho(
+        f"\nRe-scored {len(results)} listing(s); {len(moved)} changed.",
+        fg=typer.colors.GREEN,
+        bold=True,
+    )
+    typer.secho(f"Tokens — {llm.usage.summary()}", fg=typer.colors.BRIGHT_BLACK)
+
+
 @listings_app.command("show")
 def listings_show(listing_id: str) -> None:
     """Show one listing in full, including the scoring rationale."""

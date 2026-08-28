@@ -516,3 +516,35 @@ def test_an_empty_list_clears_a_filter() -> None:
     assert client.put("/api/preferences", json={"location_markets": []}).json()[
         "location_markets"
     ] == []
+
+
+def test_rescore_endpoint_reports_flagged_listings() -> None:
+    """A listing the user already chose is reported, not quietly re-filtered."""
+    from app.api.deps import get_listing_ingestor
+    from app.listings.ingest import Rescored
+    from app.listings.models import ListingStatus
+
+    kept = _listing()
+    kept.status = ListingStatus.CHOSEN
+    kept.score = 88  # unchanged: a flagged listing keeps the score it was chosen on
+    kept.score_breakdown = {"filter_conflict": "market 'us' not in preferred markets"}
+    moved = _listing()
+    moved.score = 90
+
+    class FakeIngestor:
+        def rescore(self, _candidate_id):  # noqa: ANN001, ANN201
+            return [
+                Rescored(kept, 88, ListingStatus.CHOSEN, flagged=True),
+                Rescored(moved, 10, ListingStatus.NEW, flagged=False),
+            ]
+
+    app.dependency_overrides[get_listing_ingestor] = lambda: FakeIngestor()
+    app.dependency_overrides[get_profile_repo] = lambda: FakeProfileRepo()
+    client = TestClient(app)
+
+    body = client.post("/api/listings/rescore").json()
+    assert body["total"] == 2
+    assert body["changed"] == 1  # only `moved` changed score
+    assert len(body["flagged"]) == 1
+    assert body["flagged"][0]["status"] == "chosen"
+    assert "market" in body["flagged"][0]["filter_conflict"]

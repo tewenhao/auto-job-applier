@@ -547,3 +547,135 @@ def test_parse_url_lines_skips_blanks_and_comments() -> None:
 
 def test_dedupe_preserving_order() -> None:
     assert dedupe_preserving_order(["a", "b", "a", "c", "b"]) == ["a", "b", "c"]
+
+
+# --- rescoring against changed preferences -----------------------------------
+
+
+class _FakeListingsRepo:
+    def __init__(self, listings: list[Listing]) -> None:
+        self.rows = {lst.id: lst for lst in listings}
+
+    def list(self, candidate_id, **_kw):  # noqa: ANN001, ANN003, ANN201
+        return list(self.rows.values())
+
+    def upsert(self, listing):  # noqa: ANN001, ANN201
+        self.rows[listing.id] = listing
+        return listing
+
+
+class _FakeProfileRepo:
+    def __init__(self, prefs: Preferences | None) -> None:
+        self.prefs = prefs
+        self.summary_calls = 0
+
+    def get_preferences(self, _candidate_id):  # noqa: ANN001, ANN201
+        return self.prefs
+
+    def get_master_profile(self, _candidate_id):  # noqa: ANN001, ANN201
+        self.summary_calls += 1
+        from app.profile.models import Candidate, MasterProfile
+
+        return MasterProfile(candidate=Candidate(id=CID, full_name="X"))
+
+
+class _FakeScorer:
+    """Stands in for the model: every listing scores the same."""
+
+    def __init__(self, score: int) -> None:
+        self.score = score
+        self.calls = 0
+
+    def __call__(self, _llm, _listing, _prefs, _summary):  # noqa: ANN001, ANN204
+        from app.listings.score import ScoreResult
+
+        self.calls += 1
+        return ScoreResult(score=self.score, rationale="because", matched=[], missing=[])
+
+
+def _stored(status: ListingStatus, *, market: str = "uk", score: int = 50) -> Listing:
+    return Listing(
+        id=uuid4(),
+        candidate_id=CID,
+        source=ListingSource.MANUAL,
+        company="Acme",
+        role_title="SWE Intern",
+        market=market,
+        score=score,
+        status=status,
+    )
+
+
+def _ingestor(  # noqa: ANN201
+    listings: list[Listing],
+    prefs: Preferences | None,
+    scorer: _FakeScorer,
+    monkeypatch,  # noqa: ANN001
+):
+    import app.listings.ingest as ingest_mod
+    from app.listings.ingest import ListingIngestor
+
+    monkeypatch.setattr(ingest_mod, "score_listing", scorer)
+    return ListingIngestor(
+        _FakeListingsRepo(listings),  # type: ignore[arg-type]
+        _FakeProfileRepo(prefs),  # type: ignore[arg-type]
+        llm=None,  # type: ignore[arg-type]
+        threshold=70,
+    )
+
+
+def test_rescore_updates_undecided_listings(monkeypatch) -> None:  # noqa: ANN001
+    listing = _stored(ListingStatus.NEW, score=40)
+    scorer = _FakeScorer(85)
+    results = _ingestor([listing], Preferences(candidate_id=CID), scorer, monkeypatch).rescore(CID)
+
+    (r,) = results
+    assert r.previous_score == 40 and r.listing.score == 85
+    assert r.listing.status == ListingStatus.SURFACED  # crossed the threshold
+    assert r.score_changed and r.status_changed and not r.flagged
+
+
+def test_rescore_flags_a_chosen_listing_instead_of_dropping_it(monkeypatch) -> None:  # noqa: ANN001
+    """The point of the whole feature: a hard filter is triage, and it does not
+    get to overrule a decision the user made by hand."""
+    listing = _stored(ListingStatus.CHOSEN, market="us", score=88)
+    prefs = Preferences(candidate_id=CID, location_markets=["uk"])  # 'us' now excluded
+    scorer = _FakeScorer(10)
+
+    (r,) = _ingestor([listing], prefs, scorer, monkeypatch).rescore(CID)
+
+    assert r.listing.status == ListingStatus.CHOSEN  # kept, not filtered
+    assert r.flagged
+    assert "market" in r.listing.score_breakdown["filter_conflict"]
+    assert r.listing.score == 88  # the score it was chosen on, not overwritten with 0
+    assert scorer.calls == 0  # and no model call was spent on it
+
+
+def test_rescore_drops_an_undecided_listing_that_now_fails_a_filter(monkeypatch) -> None:  # noqa: ANN001
+    listing = _stored(ListingStatus.SURFACED, market="us")
+    prefs = Preferences(candidate_id=CID, location_markets=["uk"])
+
+    (r,) = _ingestor([listing], prefs, _FakeScorer(90), monkeypatch).rescore(CID)
+
+    assert r.listing.status == ListingStatus.FILTERED  # no decision to protect
+    assert not r.flagged
+
+
+def test_rescore_clears_a_stale_flag(monkeypatch) -> None:  # noqa: ANN001
+    listing = _stored(ListingStatus.CHOSEN, market="uk")
+    listing.score_breakdown = {"filter_conflict": "market 'us' not in preferred markets"}
+    prefs = Preferences(candidate_id=CID, location_markets=["uk"])  # now passes again
+
+    (r,) = _ingestor([listing], prefs, _FakeScorer(75), monkeypatch).rescore(CID)
+
+    assert "filter_conflict" not in r.listing.score_breakdown
+    assert r.listing.status == ListingStatus.CHOSEN
+
+
+def test_rescore_reads_the_profile_once_not_once_per_listing(monkeypatch) -> None:  # noqa: ANN001
+    """Ingestion loads the profile per listing; over a whole queue that is a
+    read of the entire profile per row."""
+    listings = [_stored(ListingStatus.NEW) for _ in range(5)]
+    ingestor = _ingestor(listings, Preferences(candidate_id=CID), _FakeScorer(80), monkeypatch)
+    ingestor.rescore(CID)
+    assert ingestor.profile.summary_calls == 1

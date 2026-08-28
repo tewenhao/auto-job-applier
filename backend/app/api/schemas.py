@@ -23,10 +23,14 @@ class ListingSummary(BaseModel):
     status: str
     url: str | None = None  # original job-portal posting
     application_id: UUID | None = None  # existing draft for this listing, if any
+    # Set when a listing you already decided on would now fail your hard filters.
+    # It keeps its status — the flag is for you to judge, not the system.
+    filter_conflict: str | None = None
 
     @classmethod
     def build(cls, listing: Listing, application_id: UUID | None) -> ListingSummary:
         return cls(
+            filter_conflict=listing.score_breakdown.get("filter_conflict"),
             id=listing.id,  # type: ignore[arg-type]
             company=listing.company,
             role_title=listing.role_title,
@@ -38,6 +42,14 @@ class ListingSummary(BaseModel):
             url=listing.url,
             application_id=application_id,
         )
+
+
+class RescoreResult(BaseModel):
+    """What a rescore changed, for the dashboard to report."""
+
+    total: int
+    changed: int
+    flagged: list[ListingSummary] = Field(default_factory=list)
 
 
 class ApplicationSummary(BaseModel):

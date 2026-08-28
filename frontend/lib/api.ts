@@ -60,6 +60,15 @@ export type ListingSummary = {
   status: string;
   url: string | null; // original job-portal posting
   application_id: string | null; // existing draft for this listing, if any
+  /** Set when a listing you already decided on would now fail your hard
+   *  filters. It keeps its status — this is for you to judge, not the system. */
+  filter_conflict: string | null;
+};
+
+export type RescoreResult = {
+  total: number;
+  changed: number;
+  flagged: ListingSummary[];
 };
 
 export type ApplicationSummary = {
@@ -280,6 +289,11 @@ export const api = {
   resumePdfUrl: (id: string) => `${API_BASE}/api/applications/${id}/resume.pdf`,
 
   coverLetterPdfUrl: (id: string) => `${API_BASE}/api/applications/${id}/cover_letter.pdf`,
+
+  // Re-scores what is already stored against the current preferences. No
+  // fetching, no re-parsing — slow enough to warrant a busy state, but far
+  // cheaper than re-ingesting.
+  rescoreListings: () => request<RescoreResult>("/api/listings/rescore", { method: "POST" }),
 
   ingestListing: (body: { url?: string; text?: string }) =>
     request<IngestResult>("/api/listings/ingest", {
