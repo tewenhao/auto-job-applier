@@ -865,10 +865,17 @@ def generate(
     if result.pdf_path is not None:
         colour = typer.colors.GREEN if result.within_limit else typer.colors.YELLOW
         typer.secho(f"  pdf:    {result.pdf_path} ({result.pages} page(s))", fg=colour)
-        if not result.within_limit:
+        if result.stop_reason == "content_floor":
             typer.secho(
-                "  note:   still over the limit at the content floor — trim manually or "
-                "raise --max-pages.",
+                f"  note:   still {result.pages} page(s) with nothing left to trim — the "
+                "entries are at their minimum. Drop one with --steer, or raise --max-pages.",
+                fg=typer.colors.YELLOW,
+            )
+        elif result.stop_reason == "iterations":
+            typer.secho(
+                f"  note:   gave up after {len(result.trims)} trim rounds, still "
+                f"{result.pages} page(s) — there was more it could have cut. Re-run to "
+                "carry on trimming, or raise --max-pages.",
                 fg=typer.colors.YELLOW,
             )
     else:

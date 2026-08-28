@@ -376,3 +376,75 @@ def test_a_long_heading_wraps_instead_of_overflowing(tmp_path: Path) -> None:
     log = tex_path.with_suffix(".log").read_text(errors="replace")
     overfull = [ln for ln in log.splitlines() if "Overfull \\hbox" in ln]
     assert not overfull, "heading overflowed the page: " + "; ".join(overfull)
+
+
+def _always_two_pages(monkeypatch, tmp_path: Path) -> None:  # type: ignore[no-untyped-def]
+    """A fake toolchain that compiles fine and always reports two pages."""
+    import app.generation.latex as latex_mod
+
+    pdf = tmp_path / "resume.pdf"
+    pdf.write_bytes(b"%PDF-1.4\n")
+    monkeypatch.setattr(latex_mod, "has_latex_toolchain", lambda: True)
+    monkeypatch.setattr(latex_mod, "compile_pdf", lambda _p: pdf)
+    monkeypatch.setattr(latex_mod, "page_count", lambda _p: 2)
+
+
+def test_running_out_of_rounds_is_not_reported_as_the_content_floor(
+    tmp_path: Path, monkeypatch  # type: ignore[no-untyped-def]
+) -> None:
+    """The two look identical in the output and are not the same thing: one says
+    the résumé cannot get shorter, the other says the loop stopped early with
+    content still to cut. Reporting the second as the first sent a real
+    investigation looking at the wrong thing."""
+    _always_two_pages(monkeypatch, tmp_path)
+
+    result = compile_to_page_limit(
+        _resume_for_trim(),
+        Candidate(full_name="X"),
+        tmp_path / "resume.tex",
+        max_pages=1,
+        max_iterations=2,
+    )
+    assert result.stop_reason == "iterations"
+    assert result.within_limit is False
+    assert len(result.trims) == 2  # it stopped with more it could have cut
+
+
+def test_nothing_left_to_trim_is_the_content_floor(
+    tmp_path: Path, monkeypatch  # type: ignore[no-untyped-def]
+) -> None:
+    _always_two_pages(monkeypatch, tmp_path)
+    # An empty resume has nothing to trim, so the loop hits the floor at once.
+    result = compile_to_page_limit(
+        TailoredResume(), Candidate(full_name="X"), tmp_path / "resume.tex", max_pages=1
+    )
+    assert result.stop_reason == "content_floor"
+    assert result.within_limit is False
+    assert result.trims == []
+
+
+def test_fitting_reports_fits(tmp_path: Path, monkeypatch) -> None:  # type: ignore[no-untyped-def]
+    import app.generation.latex as latex_mod
+
+    pdf = tmp_path / "resume.pdf"
+    pdf.write_bytes(b"%PDF-1.4\n")
+    monkeypatch.setattr(latex_mod, "has_latex_toolchain", lambda: True)
+    monkeypatch.setattr(latex_mod, "compile_pdf", lambda _p: pdf)
+    monkeypatch.setattr(latex_mod, "page_count", lambda _p: 1)
+
+    result = compile_to_page_limit(
+        _resume_for_trim(), Candidate(full_name="X"), tmp_path / "resume.tex", max_pages=1
+    )
+    assert result.stop_reason == "fits" and result.within_limit is True
+    assert result.trims == []
+
+
+def test_no_toolchain_reports_not_compiled(tmp_path: Path, monkeypatch) -> None:  # type: ignore[no-untyped-def]
+    import app.generation.latex as latex_mod
+
+    monkeypatch.setattr(latex_mod, "has_latex_toolchain", lambda: False)
+    result = compile_to_page_limit(
+        _resume_for_trim(), Candidate(full_name="X"), tmp_path / "resume.tex"
+    )
+    assert result.stop_reason == "not_compiled"
+    assert result.within_limit is False  # unverified is not the same as fitting

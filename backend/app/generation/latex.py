@@ -17,6 +17,7 @@ import shutil
 import subprocess
 from dataclasses import dataclass, field
 from pathlib import Path
+from typing import Literal
 
 from app.generation.resume import (
     EducationEntry,
@@ -362,6 +363,18 @@ def page_count(pdf_path: Path) -> int | None:
         return None
 
 
+# Why the trim loop stopped. These are genuinely different situations and used
+# to report identically: "at the content floor" was printed whether nothing was
+# left to trim or the loop had simply run out of rounds, which sent one real
+# investigation looking in the wrong place.
+StopReason = Literal[
+    "fits",  # within the page limit
+    "content_floor",  # nothing left to trim without emptying the resume
+    "iterations",  # ran out of rounds; there was still content to trim
+    "not_compiled",  # no toolchain, or the compile failed — page count unknown
+]
+
+
 @dataclass
 class OnePageResult:
     """Outcome of rendering a resume to a page limit."""
@@ -371,7 +384,15 @@ class OnePageResult:
     pdf_path: Path | None  # compiled PDF, or None (no toolchain / compile failed)
     pages: int | None  # final page count, or None if not compiled/countable
     trims: list[str] = field(default_factory=list)  # what was removed, in order
-    within_limit: bool = False  # True iff compiled and pages <= max_pages
+    stop_reason: StopReason = "not_compiled"
+
+    @property
+    def within_limit(self) -> bool:
+        """True iff it compiled and came in at or under the limit.
+
+        Derived, not stored, so it cannot disagree with ``stop_reason``.
+        """
+        return self.stop_reason == "fits"
 
 
 def compile_to_page_limit(
@@ -400,7 +421,9 @@ def compile_to_page_limit(
     tex = _write(current)
 
     if not has_latex_toolchain():
-        return OnePageResult(resume=current, tex=tex, pdf_path=None, pages=None)
+        return OnePageResult(
+            resume=current, tex=tex, pdf_path=None, pages=None, stop_reason="not_compiled"
+        )
 
     trims: list[str] = []
     for _ in range(max_iterations):
@@ -409,20 +432,23 @@ def compile_to_page_limit(
 
         # Compile failed or page count unreadable: stop, don't trim blindly.
         if pages is None:
-            return OnePageResult(current, tex, pdf, None, trims, within_limit=False)
+            return OnePageResult(current, tex, pdf, None, trims, "not_compiled")
         if pages <= max_pages:
-            return OnePageResult(current, tex, pdf, pages, trims, within_limit=True)
+            return OnePageResult(current, tex, pdf, pages, trims, "fits")
 
         step = trim_one_step(current)
-        if step is None:  # at the content floor and still over — hand back best effort
-            return OnePageResult(current, tex, pdf, pages, trims, within_limit=False)
+        if step is None:  # nothing left to trim — hand back best effort
+            return OnePageResult(current, tex, pdf, pages, trims, "content_floor")
         current, note = step
         trims.append(note)
         tex = _write(current)
 
-    # Ran out of iterations; report the last compiled state.
+    # Ran out of rounds. There was still content to trim — the last iteration
+    # produced a trim it never got to compile — so this is not the content floor
+    # and must not be reported as one.
     pdf = compile_pdf(tex_path)
     pages = page_count(pdf) if pdf else None
-    return OnePageResult(
-        current, tex, pdf, pages, trims, within_limit=bool(pages and pages <= max_pages)
-    )
+    if pages is None:
+        return OnePageResult(current, tex, pdf, None, trims, "not_compiled")
+    reason: StopReason = "fits" if pages <= max_pages else "iterations"
+    return OnePageResult(current, tex, pdf, pages, trims, reason)
