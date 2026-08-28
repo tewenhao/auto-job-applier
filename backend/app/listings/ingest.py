@@ -2,8 +2,10 @@
 
 from __future__ import annotations
 
-from collections.abc import Iterable
+from collections.abc import Callable, Iterable
+from concurrent.futures import ThreadPoolExecutor
 from dataclasses import dataclass
+from threading import Lock
 from typing import Any
 from uuid import UUID
 
@@ -38,6 +40,11 @@ def dedupe_preserving_order(urls: Iterable[str]) -> list[str]:
             out.append(url)
     return out
 
+
+# Concurrent scoring calls during a rescore. Enough to turn a seven-minute
+# queue into a couple of minutes, low enough to stay clear of rate limits —
+# the same ceiling ingestion uses for parallel section extraction.
+RESCORE_WORKERS = 4
 
 # Statuses that record a decision the user made by hand. Rescoring updates the
 # score on these but never the status.
@@ -239,7 +246,13 @@ class ListingIngestor:
             else ListingStatus.NEW
         )
 
-    def rescore(self, candidate_id: UUID) -> list[Rescored]:
+    def rescore(
+        self,
+        candidate_id: UUID,
+        *,
+        listing_ids: list[UUID] | None = None,
+        on_result: Callable[[Rescored], None] | None = None,
+    ) -> list[Rescored]:
         """Re-score every stored listing against the current preferences.
 
         No fetching and no re-parsing: the posting hasn't changed, only what you
@@ -250,44 +263,63 @@ class ListingIngestor:
         its status. If the current hard filters would now drop one of those, it is
         **flagged, not dropped**: a filter is triage, and it does not get to
         overrule a decision made by hand.
+
+        ``listing_ids`` restricts the run to those listings, so a caller can work
+        through the queue in batches and show progress. ``on_result`` is called
+        as each one lands (from a worker thread, so keep it cheap).
+
+        The calls are independent, so they run concurrently: sequentially, a
+        five-second call per listing means about seven minutes for a queue of
+        eighty.
         """
         prefs = self.profile.get_preferences(candidate_id)
         profile_summary = self._profile_summary(candidate_id)
 
-        out: list[Rescored] = []
-        for listing in self.listings.list(candidate_id):
-            before_score, before_status = listing.score, ListingStatus(listing.status)
-            decided = before_status in DECIDED_STATUSES
+        listings = self.listings.list(candidate_id)
+        if listing_ids is not None:
+            wanted = set(listing_ids)
+            listings = [lst for lst in listings if lst.id in wanted]
 
-            if decided:
-                reason = apply_hard_filters(listing, prefs)
-                if reason:
-                    # Keep the score it was chosen on; record the conflict beside it.
-                    listing.score_breakdown = {
-                        **listing.score_breakdown,
-                        "filter_conflict": reason,
-                    }
-                else:
-                    self._apply_score(listing, prefs=prefs, profile_summary=profile_summary)
-                    listing.score_breakdown = {
-                        k: v for k, v in listing.score_breakdown.items() if k != "filter_conflict"
-                    }
-                listing.status = before_status  # untouched, either way
+        lock = Lock()
+
+        def run(listing: Listing) -> Rescored:
+            result = self._rescore_one(listing, prefs=prefs, profile_summary=profile_summary)
+            if on_result is not None:
+                with lock:  # callers report progress; don't make them thread-safe
+                    on_result(result)
+            return result
+
+        if len(listings) <= 1:
+            return [run(lst) for lst in listings]
+        with ThreadPoolExecutor(max_workers=RESCORE_WORKERS) as pool:
+            return list(pool.map(run, listings))  # map preserves input order
+
+    def _rescore_one(self, listing: Listing, *, prefs: Any, profile_summary: str) -> Rescored:
+        """Re-score one listing and store it. The status policy lives here."""
+        before_score, before_status = listing.score, ListingStatus(listing.status)
+        decided = before_status in DECIDED_STATUSES
+
+        if decided:
+            reason = apply_hard_filters(listing, prefs)
+            if reason:
+                # Keep the score it was chosen on; record the conflict beside it.
+                listing.score_breakdown = {**listing.score_breakdown, "filter_conflict": reason}
             else:
-                reason = self._apply_score(
-                    listing, prefs=prefs, profile_summary=profile_summary
-                )
-                listing.status = self._status_for(reason, listing.score)
+                self._apply_score(listing, prefs=prefs, profile_summary=profile_summary)
+                listing.score_breakdown = {
+                    k: v for k, v in listing.score_breakdown.items() if k != "filter_conflict"
+                }
+            listing.status = before_status  # untouched, either way
+        else:
+            reason = self._apply_score(listing, prefs=prefs, profile_summary=profile_summary)
+            listing.status = self._status_for(reason, listing.score)
 
-            out.append(
-                Rescored(
-                    listing=self.listings.upsert(listing),
-                    previous_score=before_score,
-                    previous_status=before_status,
-                    flagged=bool(decided and reason),
-                )
-            )
-        return out
+        return Rescored(
+            listing=self.listings.upsert(listing),
+            previous_score=before_score,
+            previous_status=before_status,
+            flagged=bool(decided and reason),
+        )
 
     def _profile_summary(self, candidate_id: UUID) -> str:
         profile = self.profile.get_master_profile(candidate_id)

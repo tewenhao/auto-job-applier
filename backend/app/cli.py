@@ -699,8 +699,18 @@ def listings_rescore() -> None:
     assert candidate.id is not None
 
     llm = LLMClient()
-    typer.echo("Re-scoring against your current preferences ...")
-    results = ListingIngestor(ListingRepository(), profiles, llm).rescore(candidate.id)
+    ingestor = ListingIngestor(ListingRepository(), profiles, llm)
+    total = len(ListingRepository().list(candidate.id))
+    typer.echo(f"Re-scoring {total} listing(s) against your current preferences ...")
+
+    done = {"n": 0}
+
+    def progress(_result: object) -> None:
+        done["n"] += 1
+        typer.echo(f"\r  {done['n']}/{total} scored ...", nl=False)
+
+    results = ingestor.rescore(candidate.id, on_result=progress)
+    typer.echo("\r" + " " * 40 + "\r", nl=False)  # clear the counter line
     if not results:
         typer.secho("No listings to re-score.", fg=typer.colors.YELLOW)
         return

@@ -679,3 +679,47 @@ def test_rescore_reads_the_profile_once_not_once_per_listing(monkeypatch) -> Non
     ingestor = _ingestor(listings, Preferences(candidate_id=CID), _FakeScorer(80), monkeypatch)
     ingestor.rescore(CID)
     assert ingestor.profile.summary_calls == 1
+
+
+def test_rescore_reports_each_listing_as_it_lands(monkeypatch) -> None:  # noqa: ANN001
+    """A run over a full queue takes minutes; the caller needs to be able to
+    show progress rather than a spinner that says nothing."""
+    listings = [_stored(ListingStatus.NEW) for _ in range(6)]
+    ingestor = _ingestor(listings, Preferences(candidate_id=CID), _FakeScorer(80), monkeypatch)
+
+    seen: list[object] = []
+    results = ingestor.rescore(CID, on_result=seen.append)
+
+    assert len(seen) == 6 and len(results) == 6
+
+
+def test_rescore_only_touches_the_listings_it_was_given(monkeypatch) -> None:  # noqa: ANN001
+    listings = [_stored(ListingStatus.NEW) for _ in range(4)]
+    ingestor = _ingestor(listings, Preferences(candidate_id=CID), _FakeScorer(80), monkeypatch)
+
+    wanted = [listings[1].id, listings[3].id]
+    results = ingestor.rescore(CID, listing_ids=wanted)  # type: ignore[arg-type]
+
+    assert [r.listing.id for r in results] == wanted
+
+
+def test_rescore_runs_the_calls_concurrently(monkeypatch) -> None:  # noqa: ANN001
+    """Sequentially, a ~5s scoring call per listing is about seven minutes for a
+    queue of eighty. The calls are independent, so they don't have to be."""
+    import time
+
+    class _SlowScorer(_FakeScorer):
+        def __call__(self, *args):  # noqa: ANN002, ANN204
+            time.sleep(0.1)
+            return super().__call__(*args)
+
+    listings = [_stored(ListingStatus.NEW) for _ in range(8)]
+    ingestor = _ingestor(listings, Preferences(candidate_id=CID), _SlowScorer(80), monkeypatch)
+
+    started = time.perf_counter()
+    ingestor.rescore(CID)
+    elapsed = time.perf_counter() - started
+
+    # 8 x 0.1s sequential is 0.8s; four at a time is ~0.2s. Generous margin so
+    # this is testing concurrency, not the machine's mood.
+    assert elapsed < 0.5, f"looks sequential: {elapsed:.2f}s"

@@ -7,7 +7,7 @@
 // client-side navigation, and the ingest run is mirrored to localStorage so a
 // full reload still shows the last run.
 
-import { api, toProblem, type IngestResult, type Problem } from "@/lib/api";
+import { api, toProblem, type IngestResult, type ListingSummary, type Problem } from "@/lib/api";
 
 export type RowStatus = "pending" | "running" | "done" | "abandoned";
 /** `error` is a skip reason from a successful call ("not a single posting");
@@ -161,6 +161,87 @@ export async function startTextRun(text: string): Promise<void> {
         },
       ],
     });
+  }
+}
+
+// --- rescoring (minutes long, so it reports progress and survives a nav) ---
+export type RescoreState = {
+  running: boolean;
+  done: number;
+  total: number;
+  changed: number;
+  flagged: ListingSummary[];
+  finished: boolean;
+};
+
+const NO_RESCORE: RescoreState = {
+  running: false,
+  done: 0,
+  total: 0,
+  changed: 0,
+  flagged: [],
+  finished: false,
+};
+
+// The queue is worked through in batches: the server scores a batch in
+// parallel, and each batch that lands moves the progress bar. One request for
+// the whole queue would be a single silent wait of a couple of minutes.
+const RESCORE_BATCH = 8;
+
+let rescoreState: RescoreState = NO_RESCORE;
+const rescoreListeners = new Set<() => void>();
+
+function setRescore(next: RescoreState) {
+  rescoreState = next;
+  rescoreListeners.forEach((l) => l());
+}
+
+export function subscribeRescore(listener: () => void): () => void {
+  rescoreListeners.add(listener);
+  return () => rescoreListeners.delete(listener);
+}
+
+export function getRescoreSnapshot(): RescoreState {
+  return rescoreState;
+}
+
+export function getRescoreServerSnapshot(): RescoreState {
+  return NO_RESCORE;
+}
+
+export function clearRescore(): void {
+  setRescore(NO_RESCORE);
+}
+
+/** Re-score the given listings, batch by batch. Throws so the page can report
+ *  a failure through the same ErrorBox as everything else. */
+export async function startRescore(ids: string[]): Promise<void> {
+  if (rescoreState.running) return;
+  setRescore({ ...NO_RESCORE, running: true, total: ids.length });
+
+  let changed = 0;
+  const flagged: ListingSummary[] = [];
+  try {
+    for (let i = 0; i < ids.length; i += RESCORE_BATCH) {
+      const batch = ids.slice(i, i + RESCORE_BATCH);
+      const result = await api.rescoreListings(batch);
+      changed += result.changed;
+      flagged.push(...result.flagged);
+      setRescore({
+        running: true,
+        done: Math.min(i + batch.length, ids.length),
+        total: ids.length,
+        changed,
+        flagged,
+        finished: false,
+      });
+    }
+    setRescore({ ...rescoreState, running: false, finished: true });
+  } catch (e) {
+    // Whatever was scored before the failure is already saved; say how far it
+    // got rather than pretending the run never happened.
+    setRescore({ ...rescoreState, running: false, finished: true });
+    throw e;
   }
 }
 

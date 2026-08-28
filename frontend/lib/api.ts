@@ -293,7 +293,11 @@ export const api = {
   // Re-scores what is already stored against the current preferences. No
   // fetching, no re-parsing — slow enough to warrant a busy state, but far
   // cheaper than re-ingesting.
-  rescoreListings: () => request<RescoreResult>("/api/listings/rescore", { method: "POST" }),
+  rescoreListings: (listing_ids?: string[]) =>
+    request<RescoreResult>("/api/listings/rescore", {
+      method: "POST",
+      body: JSON.stringify({ listing_ids: listing_ids ?? null }),
+    }),
 
   ingestListing: (body: { url?: string; text?: string }) =>
     request<IngestResult>("/api/listings/ingest", {

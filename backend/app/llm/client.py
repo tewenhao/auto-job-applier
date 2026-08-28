@@ -16,7 +16,8 @@ from __future__ import annotations
 import logging
 import time
 from collections.abc import Callable
-from dataclasses import dataclass
+from dataclasses import dataclass, field
+from threading import Lock
 from typing import Any, TypeVar
 
 import anthropic
@@ -62,14 +63,19 @@ class TokenUsage:
     cache_write: int = 0
     calls: int = 0
 
+    # Concurrent calls (a rescore fans out over the queue) would otherwise lose
+    # increments, and these numbers exist to be trusted.
+    _lock: Lock = field(default_factory=Lock, repr=False, compare=False)
+
     def add(self, usage: Any) -> None:
         if usage is None:
             return
-        self.calls += 1
-        self.input += getattr(usage, "input_tokens", 0) or 0
-        self.output += getattr(usage, "output_tokens", 0) or 0
-        self.cache_read += getattr(usage, "cache_read_input_tokens", 0) or 0
-        self.cache_write += getattr(usage, "cache_creation_input_tokens", 0) or 0
+        with self._lock:
+            self.calls += 1
+            self.input += getattr(usage, "input_tokens", 0) or 0
+            self.output += getattr(usage, "output_tokens", 0) or 0
+            self.cache_read += getattr(usage, "cache_read_input_tokens", 0) or 0
+            self.cache_write += getattr(usage, "cache_creation_input_tokens", 0) or 0
 
     def summary(self) -> str:
         """One line, for the CLI and the logs."""

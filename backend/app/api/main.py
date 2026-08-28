@@ -42,6 +42,7 @@ from app.api.schemas import (
     Preferences,
     PreferencesUpdate,
     RegenerateRequest,
+    RescoreRequest,
     RescoreResult,
     ResumeUpdate,
 )
@@ -386,6 +387,7 @@ def list_listings(
 
 @app.post("/api/listings/rescore", response_model=RescoreResult)
 def rescore_listings(
+    body: RescoreRequest | None = None,
     ingestor: ListingIngestor = Depends(get_listing_ingestor),
     profiles: ProfileRepository = Depends(get_profile_repo),
 ) -> RescoreResult:
@@ -397,7 +399,7 @@ def rescore_listings(
     """
     candidate = profiles.get_or_create_default_candidate()
     assert candidate.id is not None
-    results = ingestor.rescore(candidate.id)
+    results = ingestor.rescore(candidate.id, listing_ids=body.listing_ids if body else None)
     return RescoreResult(
         total=len(results),
         changed=sum(1 for r in results if r.score_changed or r.status_changed),

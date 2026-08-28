@@ -3,13 +3,18 @@
 import { useRouter } from "next/navigation";
 import Link from "next/link";
 import { useEffect, useState, useSyncExternalStore } from "react";
-import { api, toProblem, type ListingSummary, type Problem, type RescoreResult } from "@/lib/api";
+import { api, toProblem, type ListingSummary, type Problem } from "@/lib/api";
 import ErrorBox from "@/app/components/ErrorBox";
 import {
+  clearRescore,
   getGeneratingServerSnapshot,
   getGeneratingSnapshot,
+  getRescoreServerSnapshot,
+  getRescoreSnapshot,
   startGenerate,
+  startRescore,
   subscribeGenerating,
+  subscribeRescore,
 } from "@/lib/runs";
 
 export default function ListingsPage() {
@@ -23,21 +28,23 @@ export default function ListingsPage() {
     getGeneratingServerSnapshot,
   );
   const generating = generatingIds[0] ?? null;
-  const [rescoring, setRescoring] = useState(false);
-  const [rescored, setRescored] = useState<RescoreResult | null>(null);
+  // Tracked outside the component, like generation: a rescore takes minutes,
+  // and navigating to Priorities and back should not lose sight of it.
+  const rescore = useSyncExternalStore(
+    subscribeRescore,
+    getRescoreSnapshot,
+    getRescoreServerSnapshot,
+  );
 
-  async function rescore() {
-    setRescoring(true);
+  async function runRescore() {
+    if (!listings) return;
     setError(null);
-    setRescored(null);
     try {
-      const result = await api.rescoreListings();
-      setRescored(result);
-      setListings(await api.listListings());
+      await startRescore(listings.map((l) => l.id));
     } catch (e) {
       setError(toProblem(e));
     } finally {
-      setRescoring(false);
+      setListings(await api.listListings()); // whatever was scored is saved
     }
   }
 
@@ -69,8 +76,10 @@ export default function ListingsPage() {
       {/* Scores are computed at ingestion, so changing what you're looking for
           leaves the queue ranked by the old preferences until this is run. */}
       <div className="actions" style={{ marginBottom: 16 }}>
-        <button onClick={rescore} disabled={rescoring || generating !== null}>
-          {rescoring ? "Re-scoring…" : "Re-score against my preferences"}
+        <button onClick={runRescore} disabled={rescore.running || generating !== null}>
+          {rescore.running
+            ? `Re-scoring… ${rescore.done}/${rescore.total}`
+            : "Re-score against my preferences"}
         </button>
         <span className="muted">
           After editing <Link href="/priorities">Priorities</Link>. Nothing is re-fetched, and
@@ -78,23 +87,50 @@ export default function ListingsPage() {
         </span>
       </div>
 
-      {rescored && (
+      {(rescore.running || rescore.finished) && (
         <div className="panel rescore-summary">
-          <p>
-            Re-scored {rescored.total} listing{rescored.total === 1 ? "" : "s"};{" "}
-            <strong>{rescored.changed}</strong> changed.
-          </p>
-          {rescored.flagged.length > 0 && (
+          {rescore.running ? (
+            <>
+              <p>
+                Scoring {rescore.done} of {rescore.total} — about{" "}
+                {Math.max(1, Math.round(((rescore.total - rescore.done) * 5) / 4 / 60))} min left.
+                Safe to leave this page.
+              </p>
+              <div
+                className="progress-track"
+                role="progressbar"
+                aria-valuenow={rescore.done}
+                aria-valuemin={0}
+                aria-valuemax={rescore.total}
+              >
+                <div
+                  className="progress-fill"
+                  style={{ width: `${(rescore.done / Math.max(rescore.total, 1)) * 100}%` }}
+                />
+              </div>
+            </>
+          ) : (
+            <p>
+              Re-scored {rescore.done} listing{rescore.done === 1 ? "" : "s"};{" "}
+              <strong>{rescore.changed}</strong> changed.{" "}
+              <button className="link-button" onClick={clearRescore}>
+                Dismiss
+              </button>
+            </p>
+          )}
+          {rescore.flagged.length > 0 && (
             <>
               <p className="pref-hint">
-                {rescored.flagged.length} you had already decided on would now be filtered out by
+                {rescore.flagged.length} you had already decided on would now be filtered out by
                 your hard filters. They have been left exactly as they are — your decision stands.
               </p>
               <ul className="flagged-list">
-                {rescored.flagged.map((f) => (
+                {rescore.flagged.map((f) => (
                   <li key={f.id}>
                     {f.role_title ?? "Untitled role"} @ {f.company ?? "Unknown"}{" "}
-                    <span className="muted">({f.status}) — {f.filter_conflict}</span>
+                    <span className="muted">
+                      ({f.status}) — {f.filter_conflict}
+                    </span>
                   </li>
                 ))}
               </ul>

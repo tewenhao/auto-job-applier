@@ -532,7 +532,7 @@ def test_rescore_endpoint_reports_flagged_listings() -> None:
     moved.score = 90
 
     class FakeIngestor:
-        def rescore(self, _candidate_id):  # noqa: ANN001, ANN201
+        def rescore(self, _candidate_id, *, listing_ids=None, on_result=None):  # noqa: ANN001, ANN201
             return [
                 Rescored(kept, 88, ListingStatus.CHOSEN, flagged=True),
                 Rescored(moved, 10, ListingStatus.NEW, flagged=False),
@@ -548,3 +548,29 @@ def test_rescore_endpoint_reports_flagged_listings() -> None:
     assert len(body["flagged"]) == 1
     assert body["flagged"][0]["status"] == "chosen"
     assert "market" in body["flagged"][0]["filter_conflict"]
+
+
+def test_rescore_accepts_a_batch_of_ids() -> None:
+    """The dashboard works through the queue in batches so it can show progress
+    on a run that takes minutes."""
+    from app.api.deps import get_listing_ingestor
+
+    seen: dict[str, object] = {}
+
+    class FakeIngestor:
+        def rescore(self, _candidate_id, *, listing_ids=None, on_result=None):  # noqa: ANN001, ANN201
+            seen["ids"] = listing_ids
+            return []
+
+    app.dependency_overrides[get_listing_ingestor] = lambda: FakeIngestor()
+    app.dependency_overrides[get_profile_repo] = lambda: FakeProfileRepo()
+    client = TestClient(app)
+
+    one, two = uuid4(), uuid4()
+    body = client.post("/api/listings/rescore", json={"listing_ids": [str(one), str(two)]}).json()
+    assert body["total"] == 0
+    assert seen["ids"] == [one, two]
+
+    # and no body at all still means "everything"
+    client.post("/api/listings/rescore")
+    assert seen["ids"] is None

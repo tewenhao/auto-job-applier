@@ -44,6 +44,16 @@ class ListingSummary(BaseModel):
         )
 
 
+class RescoreRequest(BaseModel):
+    """Which listings to re-score. Omit for all of them.
+
+    The dashboard sends them in batches so it can show progress on a run that
+    takes minutes, rather than a spinner that says nothing for the duration.
+    """
+
+    listing_ids: list[UUID] | None = None
+
+
 class RescoreResult(BaseModel):
     """What a rescore changed, for the dashboard to report."""
 
