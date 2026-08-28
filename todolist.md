@@ -174,10 +174,9 @@ structured, via the `ajp preferences` commands.
       died on navigation, every document downloaded as `resume.pdf`, steering
       moved the ranking but not what trimming cut, and trimming deleted whole
       entries before touching a bullet. All fixed.
-- [ ] Live check: one full interview in the browser, start → draft → save →
-      re-ingest. The API path has been exercised live (the 500, the 400 retry,
-      and the effort fix each came out of live runs), but the whole
-      Profile-page loop has not been walked end to end since.
+- [x] Live check: a full interview in the browser, including resuming a session
+      left unfinished the day before — the transcript came back intact, the
+      doubled-up user turn from the old wedging bug included.
 
 ## Later phases (expanded when reached)
 - [ ] **Module 5** — Form auto-fill (Playwright) + essay answers + field review.
