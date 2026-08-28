@@ -789,12 +789,15 @@ def generate(
     from app.generation.repository import GenerationRepository
     from app.generation.resume import TailoredResume
     from app.listings.repository import ListingRepository
+    from app.llm import LLMClient
     from app.profile.repository import ProfileRepository
 
     typer.echo("Researching the company, tailoring the resume, and writing the letter ...")
+    llm = LLMClient()
     application = generate_application(
-        UUID(listing_id), refresh_company=refresh_company, steer=steer
+        UUID(listing_id), refresh_company=refresh_company, steer=steer, llm=llm
     )
+    typer.secho(f"Tokens — {llm.usage.summary()}", fg=typer.colors.BRIGHT_BLACK)
 
     listing = ListingRepository().get(application.listing_id)
     company = (listing.company if listing else None) or "application"

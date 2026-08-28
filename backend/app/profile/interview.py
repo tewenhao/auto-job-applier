@@ -129,14 +129,19 @@ def next_step(
     if asked >= MAX_QUESTIONS:
         return InterviewStep(ready=True, missing="reached the question limit")
 
-    context = (
-        f"# What the profile already holds (avoid re-asking)\n{profile_markdown[:4000]}\n\n"
-        if profile_markdown
-        else ""
-    )
+    # The profile context lives in the system prompt, not in the first user
+    # turn: it is the same on every turn of the session (and across sessions
+    # until the next ingest), so as part of the cached prefix it is read back at
+    # a tenth of the price instead of being re-sent at full price each turn.
+    system = _INTERVIEW_SYSTEM
+    if profile_markdown:
+        system = (
+            f"{_INTERVIEW_SYSTEM}\n\n"
+            f"# What the profile already holds (avoid re-asking)\n{profile_markdown[:4000]}"
+        )
     messages = _messages(
         [
-            {"role": "user", "content": f"{context}Interview me about the new entry."},
+            {"role": "user", "content": "Interview me about the new entry."},
             *messages,
         ]
     )
@@ -155,7 +160,7 @@ def next_step(
         )
     step = llm.parse(
         task=Task.INTERVIEW,
-        system=_INTERVIEW_SYSTEM,
+        system=system,
         messages=messages,
         output_format=InterviewStep,
         max_tokens=16000,
@@ -164,6 +169,9 @@ def next_step(
         # (and each turn took the best part of a minute); at "low" it answers in
         # a few seconds.
         effort="low",
+        # Every turn re-sends the instructions and the profile context; cached,
+        # each turn after the first reads them back at a tenth of the price.
+        cache_system=True,
     )
     if not step.ready and not (step.question or "").strip():
         # Neither a question nor a ready signal would stall the interview.

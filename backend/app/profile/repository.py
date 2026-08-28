@@ -125,7 +125,12 @@ class ProfileRepository:
             self.client.table("experiences")
             .select("*")
             .eq("candidate_id", str(candidate_id))
+            # A total order, not just start_date: entries sharing a start date
+            # would otherwise come back in whatever order Postgres felt like,
+            # and the rendered profile is a cached prompt prefix — one reordered
+            # pair of rows changes the bytes and costs a cache hit.
             .order("start_date", desc=True)
+            .order("id")
             .execute()
         )
         return [Experience.from_row(r) for r in rows]
@@ -162,6 +167,7 @@ class ProfileRepository:
             .select("*")
             .eq("candidate_id", str(candidate_id))
             .order("name")
+            .order("id")  # total order — see list_experiences
             .execute()
         )
         return [Skill.from_row(r) for r in rows]
@@ -239,6 +245,7 @@ class ProfileRepository:
             .select("*")
             .eq("candidate_id", str(candidate_id))
             .order("created_at")
+            .order("id")  # total order — see list_experiences
             .execute()
         )
         return [WritingSample.from_row(r) for r in rows]

@@ -104,3 +104,29 @@ A running log of significant decisions and their rationale. Newest at the bottom
   application slot on. Captured now (though it lives in Module 2 + dashboard) so
   the data model reserves it cleanly rather than retrofitting.
 - Date: 2026-08-21
+
+## Prompt caching: cache the profile, and put it first
+- Decision: mark the system prompt and the candidate-profile block as cache
+  breakpoints on the three Opus routes (résumé tailoring, cover letter,
+  interview), and reorder the generation prompts so the stable context comes
+  *before* the per-listing content. The Haiku routes (listing parse, listing
+  score, document extraction) are deliberately left uncached.
+- Alternatives: cache nothing (status quo); cache everything everywhere; a
+  1-hour TTL instead of the default 5 minutes.
+- Rationale: caching is a *prefix* match, so order is the whole game. The
+  profile renders to ~17.5k tokens and was being re-sent at full price on every
+  generation — twice per application, again on every steer — and it sat *after*
+  the company and role in the prompt, so no two listings shared a prefix. Moving
+  it ahead of the volatile half makes the same bytes cacheable across every
+  listing; a read costs ~10% of a full-price input token. The Haiku routes can't
+  benefit at any price: their system prompts are 98-253 tokens against Haiku
+  4.5's 4096-token minimum cacheable prefix, so a marker there would be silently
+  ignored. The 5-minute TTL is right because the calls that share a prefix run
+  back to back (résumé then cover letter, then the next listing) and every read
+  refreshes the timer; the 1-hour TTL costs 2x to write and would only pay off
+  across longer gaps.
+- Consequence: `list_experiences` / `list_skills` / `list_writing_samples` now
+  order by a *total* key. Rows tied on `start_date` used to come back in
+  arbitrary order, which changes the rendered bytes and would have silently cost
+  the cache hit it was all built for.
+- Date: 2026-08-28

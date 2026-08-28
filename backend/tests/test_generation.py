@@ -107,3 +107,95 @@ def test_document_filename_defaults_and_override() -> None:
         document_filename(candidate_name="X", company="Y", override="Resume_2027.pdf")
         == "resume-2027.pdf"
     )
+
+
+class _CapturingLLM:
+    """Records the request instead of sending it."""
+
+    def __init__(self, result: object = None) -> None:
+        self.result = result
+        self.kwargs: dict = {}
+
+    def parse(self, **kwargs):  # noqa: ANN003, ANN201
+        self.kwargs = kwargs
+        return self.result
+
+    def complete(self, **kwargs):  # noqa: ANN003, ANN201
+        self.kwargs = kwargs
+        return "Dear team, ..."
+
+
+def _profile() -> MasterProfile:
+    return MasterProfile(
+        candidate=Candidate(id=CID, full_name="En Hao Tew"),
+        experiences=[
+            Experience(
+                candidate_id=CID,
+                kind=ExperienceKind.WORK,
+                title="Intern",
+                org="Acme",
+                summary="Did a thing.",
+            )
+        ],
+    )
+
+
+def _listing():  # noqa: ANN202
+    from app.listings.models import Listing, ListingSource
+
+    return Listing(
+        candidate_id=CID,
+        source=ListingSource.MANUAL,
+        url="https://example.com/job",
+        company="Globex",
+        role_title="SWE Intern",
+        jd_summary="Build things.",
+        requirements=["python"],
+    )
+
+
+def _blocks(llm: _CapturingLLM) -> list[dict]:
+    (message,) = llm.kwargs["messages"]
+    return message["content"]
+
+
+def test_resume_prompt_caches_the_profile_ahead_of_the_per_listing_tail() -> None:
+    """The profile is ~17k tokens and identical for every listing. Caching is a
+    prefix match, so it only pays if it comes BEFORE anything role-specific —
+    put the company first and every listing writes a fresh entry and reads none.
+    """
+    from app.generation.resume import tailor_resume
+
+    llm = _CapturingLLM(result=object())
+    tailor_resume(llm, listing=_listing(), profile=_profile(), brief=None)  # type: ignore[arg-type]
+
+    first, second = _blocks(llm)
+    assert first["cache_control"] == {"type": "ephemeral"}
+    assert "Candidate profile" in first["text"] and "En Hao Tew" in first["text"]
+    assert "cache_control" not in second
+    assert "Globex" in second["text"]  # the volatile half, after the breakpoint
+    assert "Globex" not in first["text"]
+    assert llm.kwargs["cache_system"] is True
+
+
+def test_cover_letter_prompt_caches_profile_and_samples_ahead_of_the_role() -> None:
+    from app.generation.cover_letter import generate_cover_letter
+
+    llm = _CapturingLLM()
+    generate_cover_letter(  # type: ignore[arg-type]
+        llm,
+        listing=_listing(),
+        profile=_profile(),
+        voice=None,
+        samples=[WritingSample(candidate_id=CID, source="essay", text="I write like this.")],
+        brief=None,
+        resume_points=["shipped a thing"],
+    )
+
+    first, second = _blocks(llm)
+    assert first["cache_control"] == {"type": "ephemeral"}
+    assert "En Hao Tew" in first["text"] and "I write like this." in first["text"]
+    assert "Globex" not in first["text"]
+    assert "cache_control" not in second
+    assert "Globex" in second["text"] and "shipped a thing" in second["text"]
+    assert llm.kwargs["cache_system"] is True

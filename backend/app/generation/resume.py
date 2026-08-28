@@ -16,7 +16,7 @@ from pydantic import BaseModel, Field
 from app.config import Task
 from app.generation.models import CompanyBrief
 from app.listings.models import Listing
-from app.llm import LLMClient
+from app.llm import LLMClient, cached_text
 from app.profile.markdown import profile_to_markdown
 from app.profile.models import MasterProfile
 
@@ -179,13 +179,19 @@ def tailor_resume(
         else ""
     )
 
-    user = (
+    # The profile comes FIRST and is cached: it is ~17k tokens, identical for
+    # every listing, and would otherwise be re-read at full price on every
+    # generation. Everything that varies per listing — the role, the brief, the
+    # steer — goes after the breakpoint, where it invalidates nothing.
+    profile_block = (
+        f"# Candidate profile (the ONLY source of facts)\n{profile_to_markdown(profile)}"
+    )
+    task_block = (
         f"# Target role\nCompany: {listing.company}\nTitle: {listing.role_title}\n"
         f"Summary: {listing.jd_summary}\n"
         f"Requirements: {', '.join(listing.requirements) or 'n/a'}\n\n"
         f"# Company brief (for emphasis only — do not add facts from it to the resume)\n"
         f"{(brief.brief if brief else '(none)')}\n\n"
-        f"# Candidate profile (the ONLY source of facts)\n{profile_to_markdown(profile)}\n\n"
         f"{steer_block}"
         "HARD RULES — never violate these handling notes, and never quote them:\n"
         f"{rules}\n\n"
@@ -201,9 +207,15 @@ def tailor_resume(
     return llm.parse(
         task=Task.GENERATE,
         system=_SYSTEM,
-        messages=[{"role": "user", "content": user}],
+        messages=[
+            {
+                "role": "user",
+                "content": [cached_text(profile_block), {"type": "text", "text": task_block}],
+            }
+        ],
         output_format=TailoredResume,
         max_tokens=16000,
+        cache_system=True,
     )
 
 

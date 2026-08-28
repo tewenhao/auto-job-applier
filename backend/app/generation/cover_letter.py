@@ -9,7 +9,7 @@ import re
 from app.config import Task
 from app.generation.models import CompanyBrief
 from app.listings.models import Listing
-from app.llm import LLMClient
+from app.llm import LLMClient, cached_text
 from app.profile.markdown import profile_to_markdown
 from app.profile.models import MasterProfile, VoiceProfile, WritingSample
 
@@ -167,12 +167,11 @@ def generate_cover_letter(
         f"{rules}"
     )
 
-    user = (
-        f"# The role\nCompany: {listing.company}\nTitle: {listing.role_title}\n"
-        f"Summary: {listing.jd_summary}\n"
-        f"Requirements: {', '.join(listing.requirements) or 'n/a'}\n\n"
-        f"# Company brief (mine this for the specific 'why this company' hook)\n"
-        f"{(brief.brief if brief else '(none)')}\n\n"
+    # Profile and writing samples first, behind a cache breakpoint: they are the
+    # bulk of the prompt and are the same for every application. The role, the
+    # brief, and this draft's resume points follow, so they cost full price only
+    # for what actually changed.
+    context_block = (
         f"# Candidate profile — this is also what the resume is built from, so the "
         f"reader will see these facts on the resume. Do NOT re-list them; use them "
         f"to find the ONE thread worth opening up on motivation and fit.\n"
@@ -180,6 +179,13 @@ def generate_cover_letter(
         f"# The candidate's own past writing — STYLE REFERENCE ONLY (learn the "
         f"voice; take no facts, claims, or details from it)\n"
         f"{_samples_block(samples)}"
+    )
+    task_block = (
+        f"# The role\nCompany: {listing.company}\nTitle: {listing.role_title}\n"
+        f"Summary: {listing.jd_summary}\n"
+        f"Requirements: {', '.join(listing.requirements) or 'n/a'}\n\n"
+        f"# Company brief (mine this for the specific 'why this company' hook)\n"
+        f"{(brief.brief if brief else '(none)')}"
         f"{_resume_points_block(resume_points)}\n\n"
         "Write the cover letter now. Output only the letter."
     )
@@ -190,7 +196,13 @@ def generate_cover_letter(
     letter = llm.complete(
         task=Task.GENERATE,
         system=system,
-        messages=[{"role": "user", "content": user}],
+        messages=[
+            {
+                "role": "user",
+                "content": [cached_text(context_block), {"type": "text", "text": task_block}],
+            }
+        ],
         max_tokens=8000,
+        cache_system=True,
     )
     return _strip_ai_dashes(letter.strip())

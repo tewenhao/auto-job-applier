@@ -28,17 +28,25 @@ def _profile_summary(profile) -> str:  # type: ignore[no-untyped-def]
 
 
 def generate_application(
-    listing_id: UUID, *, refresh_company: bool = False, steer: str | None = None
+    listing_id: UUID,
+    *,
+    refresh_company: bool = False,
+    steer: str | None = None,
+    llm: LLMClient | None = None,
 ) -> Application:
     """Research the company and generate a tailored resume + cover letter.
 
     ``steer`` is optional free-text guidance passed to the resume tailorer to
     override its selection/ranking (used when regenerating after review).
+
+    Pass ``llm`` to read the token usage afterwards (``llm.usage``) — the two
+    generation calls share a cached prefix, and the usage numbers are the only
+    proof the cache is being read rather than rewritten.
     """
     listings = ListingRepository()
     gen = GenerationRepository()
     profiles = ProfileRepository()
-    llm = LLMClient()
+    llm = llm or LLMClient()
 
     listing = listings.get(listing_id)
     if listing is None:
