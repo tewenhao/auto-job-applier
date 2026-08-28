@@ -36,17 +36,29 @@ class ListingRepository:
         return Listing.from_row(row) if row else None
 
     def upsert(self, listing: Listing) -> Listing:
-        """Insert, or update the existing row with the same URL (when present)."""
-        if listing.url:
+        """Update the row this listing already is, else the one with the same
+        URL, else insert it.
+
+        Identity is the ``id`` first: a listing that carries one came out of the
+        database, so re-saving it is an update whatever its URL says. Keying on
+        URL alone meant a listing ingested from pasted text — which has no URL —
+        fell through to INSERT on every re-save, and failed on the primary key
+        the moment it had an id. Ingestion never saw it because a freshly built
+        listing has no id yet; re-scoring hit it immediately.
+        """
+        target = listing.id
+        if target is None and listing.url:
             existing = self.get_by_url(listing.candidate_id, listing.url)
-            if existing is not None:
-                row = _rows(
-                    self.client.table("listings")
-                    .update(listing.to_row())
-                    .eq("id", str(existing.id))
-                    .execute()
-                )[0]
-                return Listing.from_row(row)
+            target = existing.id if existing is not None else None
+
+        if target is not None:
+            row = _rows(
+                self.client.table("listings")
+                .update(listing.to_row())
+                .eq("id", str(target))
+                .execute()
+            )[0]
+            return Listing.from_row(row)
         row = _rows(self.client.table("listings").insert(listing.to_row()).execute())[0]
         return Listing.from_row(row)
 

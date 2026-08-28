@@ -723,3 +723,115 @@ def test_rescore_runs_the_calls_concurrently(monkeypatch) -> None:  # noqa: ANN0
     # 8 x 0.1s sequential is 0.8s; four at a time is ~0.2s. Generous margin so
     # this is testing concurrency, not the machine's mood.
     assert elapsed < 0.5, f"looks sequential: {elapsed:.2f}s"
+
+
+# --- the repository's idea of identity ----------------------------------------
+
+
+class _FakeQuery:
+    """Enough of the postgrest builder to record what would have been sent."""
+
+    def __init__(self, log: list, existing: list) -> None:
+        self.log = log
+        self.existing = existing
+        self.op = ""
+        self.payload: dict = {}
+        self.filters: dict = {}
+
+    def select(self, *_a, **_k) -> _FakeQuery:  # noqa: ANN002, ANN003
+        self.op = "select"
+        return self
+
+    def update(self, payload: dict) -> _FakeQuery:
+        self.op, self.payload = "update", payload
+        return self
+
+    def insert(self, payload: dict) -> _FakeQuery:
+        self.op, self.payload = "insert", payload
+        return self
+
+    def eq(self, key: str, value: str) -> _FakeQuery:
+        self.filters[key] = value
+        return self
+
+    def limit(self, _n: int) -> _FakeQuery:
+        return self
+
+    def order(self, *_a, **_k) -> _FakeQuery:  # noqa: ANN002, ANN003
+        return self
+
+    def execute(self):  # noqa: ANN201
+        from types import SimpleNamespace
+
+        self.log.append((self.op, self.filters))
+        if self.op == "select":
+            return SimpleNamespace(data=list(self.existing))
+        return SimpleNamespace(data=[{**self.payload, "id": self.payload.get("id", str(uuid4()))}])
+
+
+class _FakeClient:
+    def __init__(self, existing: list | None = None) -> None:
+        self.log: list = []
+        self.existing = existing or []
+
+    def table(self, _name: str) -> _FakeQuery:
+        return _FakeQuery(self.log, self.existing)
+
+
+def _repo(client: _FakeClient):  # noqa: ANN201
+    from app.listings.repository import ListingRepository
+
+    repo = object.__new__(ListingRepository)
+    repo.client = client  # type: ignore[attr-defined]
+    return repo
+
+
+def test_upsert_updates_a_listing_that_already_has_an_id() -> None:
+    """Re-scoring saves listings that came out of the database. Keyed on URL
+    alone, one ingested from pasted text (no URL) went to INSERT and died on the
+    primary key: 'duplicate key value violates unique constraint listings_pkey'.
+    """
+    listing = _stored(ListingStatus.NEW)
+    listing.url = None  # added by pasting a JD, so there is no URL to key on
+    client = _FakeClient()
+
+    _repo(client).upsert(listing)
+
+    ops = [op for op, _ in client.log]
+    assert "insert" not in ops, "re-saving a stored listing must not insert"
+    assert ops == ["update"]
+    assert client.log[0][1] == {"id": str(listing.id)}
+
+
+def test_upsert_still_matches_a_new_listing_by_url() -> None:
+    """A freshly ingested listing has no id, so the URL is what identifies it."""
+    existing_id = uuid4()
+    listing = _stored(ListingStatus.NEW)
+    listing.id = None
+    listing.url = "https://example.com/job"
+    client = _FakeClient(
+        existing=[
+            {
+                "id": str(existing_id),
+                "candidate_id": str(CID),
+                "source": "manual",
+                "url": "https://example.com/job",
+            }
+        ]
+    )
+
+    _repo(client).upsert(listing)
+
+    assert [op for op, _ in client.log] == ["select", "update"]
+    assert client.log[1][1] == {"id": str(existing_id)}
+
+
+def test_upsert_inserts_a_listing_it_has_never_seen() -> None:
+    listing = _stored(ListingStatus.NEW)
+    listing.id = None
+    listing.url = "https://example.com/new"
+    client = _FakeClient(existing=[])
+
+    _repo(client).upsert(listing)
+
+    assert [op for op, _ in client.log] == ["select", "insert"]
